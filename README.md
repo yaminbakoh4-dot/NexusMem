@@ -237,8 +237,20 @@ looking for one.
 | Phase | Scope |
 | --- | --- |
 | 1 | `init` / `sync` / `query`, git + shell collectors, SQLite + FTS5, token-budgeted context packing |
-| 2 | `sqlite-vec` + Ollama embeddings, hybrid retrieval, MCP server |
+| 2 | `sqlite-vec` + Ollama embeddings, hybrid retrieval, MCP server, **conversation collector** (see below) |
 | 3 | Diff-level nodes, session summarization via a local SLM, cross-project recall |
+
+**Highest-priority addition: a conversation/session collector.** Dogfooding
+this tool on its own repo (2026-08-08) showed why. This project's git history
+was 3 same-day, largely one-line commits and its shell history was an
+unscoped system-wide scrape — so `nexusmem query` on a real design question
+returned an unrelated `cd` command, not an answer. The actual reasoning
+behind almost every design decision in this codebase (why BM25 before vector
+search, why each ranking factor is floored, why the PowerShell hook escapes
+paths the way it does) exists only in the AI coding assistant conversation
+that produced the code, and NexusMem has no collector for that yet — only
+git and shell. Capturing the conversation itself, not just its code diffs,
+is probably worth more than everything else on this roadmap combined.
 
 ### Known limitations
 
