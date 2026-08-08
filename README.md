@@ -17,7 +17,7 @@ context that's actually relevant** to the question in front of it.
 
 ## Features
 
-- 🔒 **100% local-first.** SQLite on disk, in `.agent-ssd/` inside your repo.
+- 🔒 **100% local-first.** SQLite on disk, in `.nexusmem/` inside your repo.
   No network calls, no telemetry, works fully offline.
 - 🔍 **Real full-text search**, not string matching — SQLite FTS5 with BM25
   ranking over every commit and shell command ever ingested.
@@ -42,21 +42,21 @@ context that's actually relevant** to the question in front of it.
 primary target on Windows; bash/zsh are supported elsewhere.
 
 ```bash
-git clone https://github.com/yaminbakoh4-dot/agent-ssd.git
-cd agent-ssd
+git clone https://github.com/yaminbakoh4-dot/NexusMem.git
+cd NexusMem
 npm install
 npm run build
 npm link
 ```
 
-`npm link` puts `agent-ssd` on your `PATH`, so it works from any repo on your
+`npm link` puts `nexusmem` on your `PATH`, so it works from any repo on your
 machine — you're not limited to running it from inside this folder.
 
 ```bash
 cd path/to/some/other/git-repo
-agent-ssd init
-agent-ssd sync
-agent-ssd query "why does the retry logic exist"
+nexusmem init
+nexusmem sync
+nexusmem query "why does the retry logic exist"
 ```
 
 ```
@@ -72,12 +72,12 @@ Optional, for much higher-quality shell context (real cwd + exit code instead
 of an approximation):
 
 ```bash
-agent-ssd hook install
+nexusmem hook install
 ```
 
 This edits your PowerShell profile to log every command's timestamp, cwd and
 exit code to a small local JSONL file. It wraps your existing prompt rather
-than replacing it, is fully idempotent, and `agent-ssd hook remove` undoes it
+than replacing it, is fully idempotent, and `nexusmem hook remove` undoes it
 cleanly. Nothing is installed without you running this yourself.
 
 ## Architecture
@@ -131,13 +131,13 @@ redundant work free.
 NexusMem scrapes whatever history file your shell already keeps. These files
 carry no cwd, so entries can't be correctly scoped to one project — they're
 attributed to whichever repo you happen to run `sync` from, which is an
-approximation, not a guarantee. `agent-ssd hook install` logs the real
+approximation, not a guarantee. `nexusmem hook install` logs the real
 timestamp, cwd and exit code instead; once that log exists, the noisier raw
 scrape is skipped automatically. A failed command scores meaningfully higher
 than the same command succeeding — a build that just broke is exactly the
 context an agent should see first.
 
-**The workspace ignores itself.** `.agent-ssd/` contains its own `.gitignore`
+**The workspace ignores itself.** `.nexusmem/` contains its own `.gitignore`
 with `*`, so `init` never edits a file in a repo it does not own.
 
 ## Benchmarks
@@ -169,10 +169,10 @@ src/
   shell/         shell-history strategies: PSReadLine, bash, zsh, hook log (pure parsers)
   hooks/         PowerShell profile hook: snippet generation + install/remove
   collectors/    raw source events (git, shell) -> MemoryNode
-  config/        .agent-ssd workspace paths + validated config
+  config/        .nexusmem workspace paths + validated config
   store/         SQLite schema, migrations, repository, FTS5 query building
   retrieval/     ranking (relevance x signal x recency) + token-budgeted packing
-  cli/           agent-ssd command surface
+  cli/           nexusmem command surface
   mcp/           Model Context Protocol server         (Phase 2)
 tests/
 ```
@@ -180,30 +180,30 @@ tests/
 ### On-disk layout
 
 ```
-<repo>/.agent-ssd/
+<repo>/.nexusmem/
   .gitignore     '*' — the workspace ignores itself
   config.json    validated on read; corrupt config fails loudly, never silently
   memory.db      SQLite (WAL): nodes, node_files, nodes_fts, sync_state
 ```
 
-Delete `.agent-ssd/` and nothing is lost that `sync` cannot rebuild.
+Delete `.nexusmem/` and nothing is lost that `sync` cannot rebuild.
 
 ## Command reference
 
 ```
-agent-ssd init          create .agent-ssd/ and the database
-agent-ssd sync          ingest new history (incremental, git + shell)
-agent-ssd status        what is currently remembered, per source
-agent-ssd query <text>  search + rank + pack remembered context for a question
-agent-ssd scan-git      preview git nodes without writing
-agent-ssd scan-shell    preview shell nodes without writing
-agent-ssd hook install  opt in to high-quality shell capture
-agent-ssd hook remove   undo the above
-agent-ssd hook status   check whether the hook is installed
+nexusmem init          create .nexusmem/ and the database
+nexusmem sync          ingest new history (incremental, git + shell)
+nexusmem status        what is currently remembered, per source
+nexusmem query <text>  search + rank + pack remembered context for a question
+nexusmem scan-git      preview git nodes without writing
+nexusmem scan-shell    preview shell nodes without writing
+nexusmem hook install  opt in to high-quality shell capture
+nexusmem hook remove   undo the above
+nexusmem hook status   check whether the hook is installed
 ```
 
 Every command accepts `-C, --cwd <path>` to target a repository other than
-the current directory. Run `agent-ssd <command> --help` for the full flag
+the current directory. Run `nexusmem <command> --help` for the full flag
 list.
 
 ## Development

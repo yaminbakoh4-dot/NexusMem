@@ -77,7 +77,7 @@ export async function runInit(opts: InitOptions): Promise<number> {
     }
   }
 
-  lines.push('', `Next: ${pc.bold('agent-ssd sync')}`, '');
+  lines.push('', `Next: ${pc.bold('nexusmem sync')}`, '');
   process.stdout.write(lines.join('\n'));
 
   return 0;

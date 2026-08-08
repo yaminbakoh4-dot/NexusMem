@@ -20,7 +20,7 @@ export async function runHookInstall(opts: HookOptions): Promise<number> {
       '',
       `New commands in any PowerShell session using this profile will now log their timestamp, cwd and exit code.`,
       `Open a new PowerShell window (or run \`. $PROFILE\`) for it to take effect.`,
-      `Run ${pc.bold('agent-ssd hook remove')} to undo this.`,
+      `Run ${pc.bold('nexusmem hook remove')} to undo this.`,
       '',
     ].join('\n'),
   );

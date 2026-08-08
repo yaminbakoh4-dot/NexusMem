@@ -268,7 +268,7 @@ describe('PowerShell hook snippet', () => {
     const once = upsertHookSnippet('# profile\n', 'C:/log.jsonl');
     const twice = upsertHookSnippet(once, 'C:/log.jsonl');
     expect(twice.match(/__ssd_last_history_id/g)?.length).toBe(once.match(/__ssd_last_history_id/g)?.length);
-    expect(twice.match(/# >>> agent-ssd shell hook >>>/g)).toHaveLength(1);
+    expect(twice.match(/# >>> nexusmem shell hook >>>/g)).toHaveLength(1);
   });
 
   it('updates the log path in place when re-installed with a new path', () => {

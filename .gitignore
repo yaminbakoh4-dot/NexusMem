@@ -7,9 +7,9 @@ npm-debug.log*
 
 # NexusMem's own on-disk memory lives here and is machine-local by design.
 # (Also covers any repo used as a manual test fixture under this tree.)
-.agent-ssd/
+.nexusmem/
 
-# Defense in depth: never let a stray database, even outside .agent-ssd/, land in git.
+# Defense in depth: never let a stray database, even outside .nexusmem/, land in git.
 *.db
 *.db-wal
 *.db-shm

@@ -35,13 +35,13 @@ function guard(run: () => Promise<number>): () => Promise<void> {
 const program = new Command();
 
 program
-  .name('agent-ssd')
+  .name('nexusmem')
   .description('NexusMem — local-first persistent memory for AI coding agents')
   .version('0.1.0');
 
 program
   .command('init')
-  .description('Create the .agent-ssd workspace and database for this repository')
+  .description('Create the .nexusmem workspace and database for this repository')
   .option('-C, --cwd <path>', 'repository path', process.cwd())
   .option('--force', 'overwrite an existing config (the database is kept)', false)
   .option('--hook', 'also install the opt-in PowerShell hook (cwd + exit code + timestamp)', false)

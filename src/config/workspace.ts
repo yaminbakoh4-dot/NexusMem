@@ -4,12 +4,12 @@ import { join } from 'node:path';
 import { z } from 'zod';
 
 /** Everything NexusMem stores lives under this directory in the repo root. */
-export const WORKSPACE_DIR = '.agent-ssd';
+export const WORKSPACE_DIR = '.nexusmem';
 
 export interface Workspace {
   /** Repository root. */
   root: string;
-  /** `<root>/.agent-ssd` */
+  /** `<root>/.nexusmem` */
   dir: string;
   dbPath: string;
   configPath: string;
@@ -80,7 +80,7 @@ export async function readConfig(ws: Workspace): Promise<NexusConfig> {
   try {
     raw = await readFile(ws.configPath, 'utf8');
   } catch {
-    throw new ConfigError(`Not initialized: ${ws.configPath} not found. Run \`agent-ssd init\` first.`);
+    throw new ConfigError(`Not initialized: ${ws.configPath} not found. Run \`nexusmem init\` first.`);
   }
 
   let parsed: unknown;

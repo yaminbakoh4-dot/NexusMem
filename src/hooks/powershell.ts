@@ -8,8 +8,8 @@
  * `prompt` runs once per command, it does not own the prompt's appearance.
  */
 
-const MARK_START = '# >>> agent-ssd shell hook >>>';
-const MARK_END = '# <<< agent-ssd shell hook <<<';
+const MARK_START = '# >>> nexusmem shell hook >>>';
+const MARK_END = '# <<< nexusmem shell hook <<<';
 
 /**
  * PowerShell single-quoted strings have exactly one escape rule (a literal

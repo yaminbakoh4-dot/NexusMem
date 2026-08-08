@@ -57,7 +57,7 @@ export async function runStatus(opts: StatusOptions): Promise<number> {
           const cursorLabel = s.source === 'git' ? (s.cursor?.slice(0, 7) ?? '-') : (s.cursor ?? '-');
           return `    ${s.source.padEnd(14)} ${pc.dim(`last run ${when}`)}  ${pc.dim(`cursor ${cursorLabel}`)}`;
         }),
-        gitCursor && gitCursor !== repo.head ? `${pc.yellow('git behind HEAD')} — run ${pc.bold('agent-ssd sync')}` : '',
+        gitCursor && gitCursor !== repo.head ? `${pc.yellow('git behind HEAD')} — run ${pc.bold('nexusmem sync')}` : '',
         '',
       ]
         .filter((line) => line !== '')

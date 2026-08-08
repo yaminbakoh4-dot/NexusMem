@@ -21,12 +21,12 @@ export function zshHistoryPath(): string {
 /**
  * The user-scoped (not repo-scoped) NexusMem directory.
  *
- * The hook log lives here rather than under any one repo's `.agent-ssd/`,
+ * The hook log lives here rather than under any one repo's `.nexusmem/`,
  * because a shell session moves between projects -- the log is one growing
  * stream shared across every repo, filtered to each repo's cwd at read time.
  */
 export function globalWorkspaceDir(): string {
-  return join(homedir(), '.agent-ssd');
+  return join(homedir(), '.nexusmem');
 }
 
 export function hookLogPath(): string {
