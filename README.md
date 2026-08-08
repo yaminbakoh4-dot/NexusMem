@@ -251,6 +251,8 @@ paths the way it does) exists only in the AI coding assistant conversation
 that produced the code, and NexusMem has no collector for that yet — only
 git and shell. Capturing the conversation itself, not just its code diffs,
 is probably worth more than everything else on this roadmap combined.
+See [`docs/phase-2-spec.md`](docs/phase-2-spec.md) for the architecture draft
+covering all three Phase 2 items.
 
 ### Known limitations
 
