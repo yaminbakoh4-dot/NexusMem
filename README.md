@@ -42,8 +42,8 @@ context that's actually relevant** to the question in front of it.
 primary target on Windows; bash/zsh are supported elsewhere.
 
 ```bash
-git clone https://github.com/<your-username>/NexusMem.git
-cd NexusMem
+git clone https://github.com/yaminbakoh4-dot/agent-ssd.git
+cd agent-ssd
 npm install
 npm run build
 npm link
