@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-informational)](LICENSE)
 ![Node](https://img.shields.io/badge/node-%3E%3D20.11-brightgreen)
-![Status](https://img.shields.io/badge/phase%202-shipped%2C%20acceptance%20test%20open-yellow)
+![Status](https://img.shields.io/badge/phase%202-shipped%2C%20acceptance%20test%20passing-brightgreen)
 
 > A local-first persistent memory engine — an **SSD for AI coding agents**.
 
@@ -287,8 +287,8 @@ looking for one.
 | Phase | Scope |
 | --- | --- |
 | 1 | `init` / `sync` / `query`, git + shell collectors, SQLite + FTS5, token-budgeted context packing |
-| 2 | `sqlite-vec` + Ollama embeddings, hybrid retrieval (RRF), MCP server, conversation collector -- **shipped, acceptance test not yet passing** (see [`docs/phase-2-spec.md`](docs/phase-2-spec.md)) |
-| 3 | Chunk conversation exchanges below the whole-reply level, diff-level nodes, session summarization via a local SLM, cross-project recall |
+| 2 | `sqlite-vec` + Ollama embeddings, hybrid retrieval (RRF), MCP server, chunked conversation collector -- **shipped, acceptance test passing** (see [`docs/phase-2-spec.md`](docs/phase-2-spec.md)) |
+| 3 | Diff-level nodes, session summarization via a local SLM, cross-project recall, batch the embedding pass so one `sync` embeds a whole large corpus instead of needing several |
 
 **Highest-priority addition: a conversation/session collector.** Dogfooding
 this tool on its own repo (2026-08-08) showed why. This project's git history
@@ -306,17 +306,24 @@ below, an honest report of where it stands after actually building it.
 
 ### Phase 2, honestly
 
-All three pieces shipped and are exercised by real tests (142 passing,
+All three pieces shipped and are exercised by real tests (153 passing,
 including live `sqlite-vec` KNN queries and a real MCP stdio JSON-RPC round
-trip) -- but the acceptance test this phase was built against
+trip). The acceptance test this phase was built against
 (`nexusmem query "why floors on ranking factor score"` should surface the
-real rationale from `src/retrieval/rank.ts`) still does not pass. Diagnosed,
-not guessed: the explanation text is confirmed present in the index, but
-exchange-level granularity (one node per user turn + the *entire* assistant
-reply, capped at 4000 chars) dilutes and sometimes truncates a specific
-technical point buried inside a long, multi-topic response. Full diagnosis
-and the fix planned for next -- chunking replies below the whole-exchange
-level -- is in [`docs/phase-2-spec.md`](docs/phase-2-spec.md).
+real rationale from `src/retrieval/rank.ts`) **failed on the first real run**
+and now passes, after two more real bugs were found by checking the actual
+output rather than trusting the pipeline worked because it typechecked.
+
+In order: exchange-level granularity (one node per user turn + the *entire*
+assistant reply) diluted and sometimes truncated a specific point inside a
+long reply -- fixed by chunking replies at bold-lead-paragraph or markdown
+heading boundaries. That fix then exposed a title-truncation bug (a long
+question ate the budget meant for a "(part N/M)" suffix, making genuinely
+different chunks look like duplicates) and a summary bug (the packed preview
+truncated from the start of `Q: <question>\n\nA: <answer>`, so a long
+question could crowd out the answer entirely). Full sequence, including the
+exact diagnostic queries run against the live database, is in
+[`docs/phase-2-spec.md`](docs/phase-2-spec.md).
 
 ### Known limitations
 

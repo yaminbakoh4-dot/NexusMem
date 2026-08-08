@@ -111,6 +111,18 @@ describe('packContext', () => {
     const result = packContext([h], 1000);
     expect(result.nodes[0]!.summary).toBe('real explanation here');
   });
+
+  it('summarizes a conversation node from its answer, not its (possibly long) repeated question', () => {
+    const longQuestion = 'why floors on ranking factor score '.repeat(20); // long enough to eat a 320-char summary alone
+    const h = ranked({
+      id: 'convo',
+      title: 'why floors on ranking factor score — some heading',
+      body: `Q: ${longQuestion}\n\nA: Because zeroing any factor would let it veto the others.`,
+    });
+    const result = packContext([h], 2000);
+    expect(result.nodes[0]!.summary).toBe('Because zeroing any factor would let it veto the others.');
+    expect(result.nodes[0]!.summary).not.toContain('floors on ranking factor score');
+  });
 });
 
 describe('renderContextBlock', () => {

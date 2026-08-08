@@ -1,9 +1,12 @@
 # Phase 2 architecture draft
 
-**Status:** implemented (conversation collector, hybrid vector search, MCP
-server all shipped 2026-08-08), acceptance test **not yet passing** -- see
-below. Originally written 2026-08-08 at the end of the Phase 1 session; this
-update is from the same day, after building against it.
+**Status:** implemented and the acceptance test passes (2026-08-08). All
+three pieces (conversation collector, hybrid vector search, MCP server)
+shipped the same day; the acceptance test failed on the first real run,
+was root-caused against the live database (not guessed), fixed, and
+re-verified against the live database again. Written progressively over one
+session -- see the dated sections below for the actual sequence, including
+the failure.
 
 **Why these three, together:** dogfooding Phase 1 on this repo the same day
 showed a real design question return an unrelated `cd` command as its top
@@ -19,7 +22,7 @@ the problem alone.
 Originally it returned a stray `cd` command. Phase 2 is done when it returns
 the actual rationale from `src/retrieval/rank.ts`.
 
-### Acceptance test result: not met, root cause diagnosed
+### Acceptance test, attempt 1: not met, root cause diagnosed
 
 After shipping all three pieces and running a real sync (git + shell +
 conversation + embeddings, 319 nodes, 199 embedded), the query still does
@@ -50,12 +53,73 @@ it's one paragraph diluted inside 4000+ characters about other things, and
 neither BM25 nor a single embedding vector for the whole blob can pinpoint
 it.
 
-**Fix for next session:** split an assistant reply into multiple nodes at
-paragraph or markdown-header boundaries, still anchored to the same user
-turn (same `naturalKey` prefix, an appended segment index), instead of one
-node per exchange regardless of length. Chunk size is the standard RAG
-lesson here, and this codebase now has direct, measured evidence for it
-rather than a general principle taken on faith.
+**Fix implemented same session:** split an assistant reply into multiple
+nodes, each still anchored to the same user turn (`naturalKey` +
+`:<chunkIndex>` suffix instead of one node per exchange regardless of
+length). Boundaries: a literal `#`/`##`/`###` markdown heading, **or** a
+paragraph opening with a **bold lead sentence** -- the second case matters
+more in practice, because this project's own chat responses (the actual
+corpus) are written with bold-led paragraphs as informal section markers,
+not literal markdown headings. Plain paragraphs accumulate into the current
+chunk up to `maxChunkChars` (900). Implementation: `src/conversation/chunk.ts`.
+
+### Acceptance test, attempt 2: two more real bugs, found by actually looking
+
+Re-ran the acceptance test against a full rebuild. The chunking fix worked
+-- direct SQL query against the rebuilt database confirmed a node with
+`heading = "ทุก factor มี floor ไม่ใช่ 0..1 เต็ม"` ("every factor has a floor,
+not the full 0..1") existed, 971 chars, cleanly isolated. But the query
+output looked wrong in a new way: many results shared what looked like
+identical titles, reading like duplicate/replayed transcript data.
+
+Investigated before assuming a new bug was a data problem: it wasn't. Every
+one of those "duplicate" rows had a distinct id and distinct `chunkIndex` --
+they were correctly-chunked, genuinely different pieces of one very long
+reply that all happened to render with the same title. Root cause:
+`` `${userFirstLine} (part ${index+1}/${count})` `` was truncated as one
+string to `MAX_TITLE_CHARS`, and whenever the *question itself* was already
+near that length (this session asks long questions), the differentiating
+suffix never survived truncation. Fixed by truncating the question first,
+reserving guaranteed room for the suffix (`withSuffix()` in
+`collectors/conversation.ts`).
+
+With titles fixed, the floors chunk was visibly present at rank #2 of 20 --
+but its displayed *summary* still showed only the (long, repeated-per-chunk)
+question, never the answer. `retrieval/pack.ts`'s `summarize()` truncated
+from the start of the body; for a conversation node shaped `Q: <question>\n\nA:
+<answer>`, a long question consumed the entire summary before truncation
+ever reached the answer. Fixed: `summarize()` now looks for the `\n\nA: `
+marker and, when present, summarizes from the answer onward instead of from
+the start of the body. Git/shell node bodies never contain that marker, so
+their summaries are unaffected.
+
+### Acceptance test, attempt 3: passes
+
+```
+$ nexusmem query "why floors on ranking factor score"
+...
+- 2026-08-08 ...production-grade... — ทุก factor มี floor ไม่ใช่ 0..1 เต็ม
+  **ทุก factor มี floor ไม่ใช่ 0..1 เต็ม** — relevance, signalWeight, recencyFactor
+  อยู่ในช่วง [floor, 1] เหตุผล: การคูณเทอม 0..1 สามเทอม ถ้าตัวไหนตัวหนึ่งเป็น 0
+  จะกลืนอีกสองตัวทันที เช่น commit ที่ตรงคำถามมาก ๆ แต่เก่า 5 ปี จะแพ้ commit
+  ที่ใหม่วันนี้แต่ไม่ค่อยเกี่ยว...
+```
+
+The real rationale -- floors exist because multiplying three [0,1] terms
+lets a zero in any one crush the others, illustrated with the exact
+old-relevant-vs-new-irrelevant example from `rank.ts`'s own doc comment --
+now renders accurately, at rank #2 of 20 packed results. Rank #1 is a
+conversation chunk from *this very debugging session* discussing this exact
+query, which is a legitimate, arguably-correct top match, not noise. Calling
+this a pass: the tool now explains its own design when asked, which is what
+the acceptance test was actually checking for, even though "rank #1 exactly"
+was never a stated requirement.
+
+**Known follow-up, not yet fixed:** the embedding pass batches 200 nodes per
+`sync` call (`vector/sync.ts`'s default `batchLimit`); a large corpus needs
+multiple `sync` runs before every node is embedded (three were needed here,
+for 426 nodes). Harmless -- BM25 still covers unembedded nodes -- but worth
+either raising the default or looping internally until the queue drains.
 
 ## 1. Conversation collector
 

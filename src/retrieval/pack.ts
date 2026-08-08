@@ -24,7 +24,20 @@ const DEFAULT_SUMMARY_CHARS = 320;
 /** Formatting overhead per node (date prefix, bullet, line breaks) counted as tokens. */
 const NODE_OVERHEAD_TOKENS = 8;
 
+const CONVERSATION_ANSWER_MARKER = '\n\nA: ';
+
 function summarize(hit: RankedHit, maxChars: number): string {
+  // Conversation nodes always shape their body as "Q: <question>\n\nA:
+  // <answer>" (collectors/conversation.ts repeats the full original question
+  // in every chunk so each node is self-contained). The answer is the part
+  // worth showing -- truncating from the start of the body would otherwise
+  // spend the whole summary on a long question and never reach it.
+  const answerIdx = hit.body.indexOf(CONVERSATION_ANSWER_MARKER);
+  if (answerIdx !== -1) {
+    const answer = hit.body.slice(answerIdx + CONVERSATION_ANSWER_MARKER.length).trim();
+    if (answer) return truncate(answer, maxChars);
+  }
+
   // Body already leads with the title; skip straight to whatever follows it
   // so the summary doesn't repeat text that's already shown as the heading.
   const rest = hit.body.startsWith(hit.title) ? hit.body.slice(hit.title.length).trim() : hit.body;
