@@ -1,0 +1,52 @@
+{
+  "name": "nexusmem",
+  "version": "0.1.0",
+  "description": "Local-first persistent memory engine (an SSD for AI coding agents). Captures git, shell and diff history into an embedded DB and serves back only the context that matters.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "bin": {
+    "agent-ssd": "./dist/cli/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "dev": "tsx src/cli/index.ts",
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.2.0",
+    "commander": "^14.0.0",
+    "picocolors": "^1.1.1",
+    "zod": "^4.0.5"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^24.0.0",
+    "tsup": "^8.5.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0"
+  },
+  "keywords": [
+    "ai",
+    "memory",
+    "context",
+    "mcp",
+    "local-first",
+    "sqlite",
+    "agent"
+  ],
+  "allowScripts": {
+    "better-sqlite3@12.11.1": true,
+    "esbuild@0.27.7": true,
+    "esbuild@0.28.1": true
+  }
+}

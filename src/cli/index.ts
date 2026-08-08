@@ -1,0 +1,161 @@
+import { Command } from 'commander';
+import pc from 'picocolors';
+import { ConfigError } from '../config/workspace.js';
+import { NotAGitRepositoryError } from '../git/repo.js';
+import { ProfileNotFoundError } from '../hooks/install.js';
+import { runHookInstall, runHookRemove, runHookStatus } from './commands/hook.js';
+import { runInit } from './commands/init.js';
+import { runQuery } from './commands/query.js';
+import { runScanGit } from './commands/scan-git.js';
+import { runScanShell } from './commands/scan-shell.js';
+import { runStatus } from './commands/status.js';
+import { runSync } from './commands/sync.js';
+
+/** Failures the user can act on, reported without a stack trace. */
+function isExpected(err: unknown): err is Error {
+  return err instanceof NotAGitRepositoryError || err instanceof ConfigError || err instanceof ProfileNotFoundError;
+}
+
+/** Wrap a command so expected failures exit 1 with a clean message. */
+function guard(run: () => Promise<number>): () => Promise<void> {
+  return async () => {
+    try {
+      process.exitCode = await run();
+    } catch (err) {
+      if (isExpected(err)) {
+        process.stderr.write(`${pc.red('error')} ${err.message}\n`);
+        process.exitCode = 1;
+        return;
+      }
+      throw err;
+    }
+  };
+}
+
+const program = new Command();
+
+program
+  .name('agent-ssd')
+  .description('NexusMem — local-first persistent memory for AI coding agents')
+  .version('0.1.0');
+
+program
+  .command('init')
+  .description('Create the .agent-ssd workspace and database for this repository')
+  .option('-C, --cwd <path>', 'repository path', process.cwd())
+  .option('--force', 'overwrite an existing config (the database is kept)', false)
+  .option('--hook', 'also install the opt-in PowerShell hook (cwd + exit code + timestamp)', false)
+  .action((options) => guard(() => runInit({ cwd: options.cwd, force: options.force, hook: options.hook }))());
+
+program
+  .command('sync')
+  .description('Ingest new history into the local database')
+  .option('-C, --cwd <path>', 'repository path', process.cwd())
+  .option('--full', 'ignore the stored cursor and re-walk all history', false)
+  .option('--rebuild', 'drop this project\'s nodes and re-ingest from scratch', false)
+  .option('--since <date>', 'override the configured git cutoff, e.g. 1.year.ago')
+  .option('--shell-lines <count>', 'override the configured shell tail-window size', (v) => Number.parseInt(v, 10))
+  .option('-q, --quiet', 'only print the final summary', false)
+  .action((options) =>
+    guard(() =>
+      runSync({
+        cwd: options.cwd,
+        full: options.full,
+        rebuild: options.rebuild,
+        since: options.since,
+        shellTailLines: options.shellLines,
+        quiet: options.quiet,
+      }),
+    )(),
+  );
+
+program
+  .command('hook')
+  .description('Manage the opt-in PowerShell hook that logs cwd + exit code + timestamp')
+  .addCommand(
+    new Command('install')
+      .description('Install (or update) the hook in your PowerShell profile')
+      .option('--profile <path>', 'override the auto-detected $PROFILE path')
+      .action((options) => guard(() => runHookInstall({ profile: options.profile }))()),
+  )
+  .addCommand(
+    new Command('remove')
+      .description('Remove the hook block from your PowerShell profile')
+      .option('--profile <path>', 'override the auto-detected $PROFILE path')
+      .action((options) => guard(() => runHookRemove({ profile: options.profile }))()),
+  )
+  .addCommand(
+    new Command('status')
+      .description('Show whether the hook is installed')
+      .option('--profile <path>', 'override the auto-detected $PROFILE path')
+      .action((options) => guard(() => runHookStatus({ profile: options.profile }))()),
+  );
+
+program
+  .command('status')
+  .description('Show what is currently remembered for this repository')
+  .option('-C, --cwd <path>', 'repository path', process.cwd())
+  .action((options) => guard(() => runStatus({ cwd: options.cwd }))());
+
+program
+  .command('query')
+  .description('Search remembered history and print a token-budgeted context block')
+  .argument('<text>', 'free-text query')
+  .option('-C, --cwd <path>', 'repository path', process.cwd())
+  .option('-b, --budget <tokens>', 'max tokens in the packed context', (v) => Number.parseInt(v, 10), 2000)
+  .option('-n, --candidates <count>', 'how many search hits to rank before packing', (v) => Number.parseInt(v, 10), 30)
+  .option('--half-life <days>', 'days for a node\'s recency weight to halve', (v) => Number.parseFloat(v))
+  .option('--json', 'emit the packed result as JSON on stdout', false)
+  .action((text: string, options) =>
+    guard(() =>
+      runQuery({
+        cwd: options.cwd,
+        query: text,
+        budget: options.budget,
+        candidates: options.candidates,
+        halfLifeDays: options.halfLife,
+        json: options.json,
+      }),
+    )(),
+  );
+
+program
+  .command('scan-git')
+  .description('Preview the MemoryNodes git history would produce (writes nothing)')
+  .option('-C, --cwd <path>', 'repository path', process.cwd())
+  .option('--since <date>', 'only commits newer than this git date expression, e.g. 90.days.ago')
+  .option('-n, --limit <count>', 'stop after N commits', (v) => Number.parseInt(v, 10))
+  .option('--no-merges', 'skip merge commits')
+  .option('--min-signal <score>', 'drop nodes below this signal', (v) => Number.parseFloat(v), 0)
+  .option('--json', 'emit MemoryNodes as JSON on stdout', false)
+  .action((options) =>
+    guard(() =>
+      runScanGit({
+        cwd: options.cwd,
+        since: options.since,
+        limit: options.limit,
+        merges: options.merges,
+        json: options.json,
+        minSignal: options.minSignal,
+      }),
+    )(),
+  );
+
+program
+  .command('scan-shell')
+  .description('Preview the MemoryNodes shell history would produce (writes nothing)')
+  .option('-C, --cwd <path>', 'repository path', process.cwd())
+  .option('-n, --tail-lines <count>', 'lines kept from each scrape-based source', (v) => Number.parseInt(v, 10), 300)
+  .option('--min-signal <score>', 'drop nodes below this signal', (v) => Number.parseFloat(v), 0)
+  .option('--json', 'emit MemoryNodes as JSON on stdout', false)
+  .action((options) =>
+    guard(() =>
+      runScanShell({ cwd: options.cwd, tailLines: options.tailLines, minSignal: options.minSignal, json: options.json }),
+    )(),
+  );
+
+program.parseAsync(process.argv).catch((err: unknown) => {
+  const message = err instanceof Error ? err.message : String(err);
+  process.stderr.write(`${pc.red('error')} ${message}\n`);
+  process.exitCode = 1;
+});

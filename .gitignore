@@ -1,0 +1,34 @@
+node_modules/
+dist/
+coverage/
+*.log
+npm-debug.log*
+*.tsbuildinfo
+
+# NexusMem's own on-disk memory lives here and is machine-local by design.
+# (Also covers any repo used as a manual test fixture under this tree.)
+.agent-ssd/
+
+# Defense in depth: never let a stray database, even outside .agent-ssd/, land in git.
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Secrets and machine-local env config -- never committed, ever.
+.env
+.env.*
+!.env.example
+
+# Editor / OS cruft.
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Claude Code local session settings (permissions etc.) -- machine-specific,
+# not meant to be shared. .claude/settings.json (without .local) is fine to
+# track if the project ever wants shared skill/permission config.
+.claude/settings.local.json
