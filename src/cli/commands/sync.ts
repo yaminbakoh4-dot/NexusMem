@@ -1,10 +1,14 @@
 import pc from 'picocolors';
+import { collectConversationTurns } from '../../collectors/conversation.js';
 import { collectGitCommits } from '../../collectors/git-commits.js';
 import { collectShellHistory } from '../../collectors/shell-history.js';
+import { collectClaudeCodeTranscripts } from '../../conversation/claude-code-reader.js';
 import type { MemoryNode } from '../../core/types.js';
 import { isAncestor } from '../../git/repo.js';
 import { collectAvailableShellHistory } from '../../shell/detect.js';
 import { MemoryStore, type IngestStats } from '../../store/store.js';
+import { OllamaEmbeddingProvider } from '../../vector/embed.js';
+import { embedPendingNodes } from '../../vector/sync.js';
 import { loadContext } from '../context.js';
 
 export interface SyncOptions {
@@ -17,6 +21,10 @@ export interface SyncOptions {
   since?: string;
   /** Overrides `sources.shell.tailLines` from config for this run. */
   shellTailLines?: number;
+  /** Forces the (opt-in) conversation source on for this run without persisting it to config. */
+  conversationOverride?: boolean;
+  /** Skip the embedding pass entirely -- useful when Ollama isn't running and you don't want to wait out its timeout. */
+  noEmbed?: boolean;
   quiet: boolean;
 }
 
@@ -151,6 +159,42 @@ async function syncShell(
   return { totals, seen };
 }
 
+const CONVERSATION_SOURCE = 'conversation:claude-code';
+
+async function syncConversation(
+  store: MemoryStore,
+  projectId: string,
+  repoRoot: string,
+  config: Awaited<ReturnType<typeof loadContext>>['config'],
+  log: (line: string) => void,
+  forceEnabled: boolean | undefined,
+): Promise<{ totals: IngestStats; seen: number }> {
+  const totals: IngestStats = { inserted: 0, updated: 0, unchanged: 0 };
+  const enabled = forceEnabled ?? config.sources.conversation.enabled;
+
+  if (!enabled) {
+    // Opt-in and silent by default -- this source is off for almost every
+    // sync, and it would be noise to announce that on every single run.
+    return { totals, seen: 0 };
+  }
+
+  const turns = await collectClaudeCodeTranscripts(repoRoot);
+  if (turns.length === 0) {
+    log(`${pc.dim('conversation')} no transcripts found`);
+    return { totals, seen: 0 };
+  }
+
+  const nodes = collectConversationTurns(turns, projectId, { maxBodyChars: config.limits.maxBodyChars });
+  if (nodes.length > 0) addStats(totals, store.upsertNodes(nodes));
+
+  // Re-read in full each sync (see claude-code-reader.ts) -- the cursor here
+  // is informational only, matching the shell scrape sources.
+  store.setSyncCursor(projectId, CONVERSATION_SOURCE, `scanned:${nodes.length}`);
+  log(`  ${pc.dim(`${CONVERSATION_SOURCE}: ${nodes.length} of ${turns.length} exchange(s) kept`)}`);
+
+  return { totals, seen: nodes.length };
+}
+
 export async function runSync(opts: SyncOptions): Promise<number> {
   const { repo, ws, projectId, config } = await loadContext(opts.cwd);
   const log = (line: string) => {
@@ -170,23 +214,38 @@ export async function runSync(opts: SyncOptions): Promise<number> {
 
     const git = await syncGit(store, projectId, opts, repo, config, log);
     const shell = await syncShell(store, projectId, opts, repo.root, config, log);
+    const conversation = await syncConversation(store, projectId, repo.root, config, log, opts.conversationOverride);
+
+    let embedLine = '';
+    if (!opts.noEmbed) {
+      const result = await embedPendingNodes(store, new OllamaEmbeddingProvider(), projectId);
+      if (result.embedded > 0) {
+        embedLine = `  ${pc.dim(`vector: ${result.embedded} node(s) embedded`)}${result.skipped > 0 ? pc.dim(`, ${result.skipped} skipped`) : ''}\n`;
+      } else if (result.providerUnavailable) {
+        log(`${pc.dim('vector')} embedding provider unavailable (is Ollama running with nomic-embed-text pulled?) -- BM25-only for now`);
+      }
+    }
 
     store.markSynced(projectId);
 
     const totals: IngestStats = { inserted: 0, updated: 0, unchanged: 0 };
     addStats(totals, git.totals);
     addStats(totals, shell.totals);
+    addStats(totals, conversation.totals);
 
     const stats = store.stats(projectId);
     const elapsed = ((Date.now() - started) / 1000).toFixed(2);
 
+    const conversationEnabled = opts.conversationOverride ?? config.sources.conversation.enabled;
+    const conversationPart = conversationEnabled ? `, ${conversation.seen} conversation exchange(s)` : '';
+
     process.stdout.write(
       [
-        `${pc.green('synced')} ${git.seen} commit(s), ${shell.seen} shell entr${shell.seen === 1 ? 'y' : 'ies'} in ${elapsed}s`,
+        `${pc.green('synced')} ${git.seen} commit(s), ${shell.seen} shell entr${shell.seen === 1 ? 'y' : 'ies'}${conversationPart} in ${elapsed}s`,
         `  ${pc.green(`+${totals.inserted} new`)}  ${pc.yellow(`~${totals.updated} updated`)}  ${pc.dim(`=${totals.unchanged} unchanged`)}`,
         `  ${pc.dim(`${stats.total} node(s) total across ${stats.distinctFiles} file path(s)`)}`,
         '',
-      ].join('\n'),
+      ].join('\n') + embedLine,
     );
 
     return 0;

@@ -5,7 +5,9 @@ import { NotAGitRepositoryError } from '../git/repo.js';
 import { ProfileNotFoundError } from '../hooks/install.js';
 import { runHookInstall, runHookRemove, runHookStatus } from './commands/hook.js';
 import { runInit } from './commands/init.js';
+import { runMcpServer } from '../mcp/server.js';
 import { runQuery } from './commands/query.js';
+import { runScanConversation } from './commands/scan-conversation.js';
 import { runScanGit } from './commands/scan-git.js';
 import { runScanShell } from './commands/scan-shell.js';
 import { runStatus } from './commands/status.js';
@@ -45,7 +47,12 @@ program
   .option('-C, --cwd <path>', 'repository path', process.cwd())
   .option('--force', 'overwrite an existing config (the database is kept)', false)
   .option('--hook', 'also install the opt-in PowerShell hook (cwd + exit code + timestamp)', false)
-  .action((options) => guard(() => runInit({ cwd: options.cwd, force: options.force, hook: options.hook }))());
+  .option('--enable-conversation', 'opt in to the conversation-transcript source (off by default -- see docs/phase-2-spec.md)', false)
+  .action((options) =>
+    guard(() =>
+      runInit({ cwd: options.cwd, force: options.force, hook: options.hook, enableConversation: options.enableConversation }),
+    )(),
+  );
 
 program
   .command('sync')
@@ -55,6 +62,8 @@ program
   .option('--rebuild', 'drop this project\'s nodes and re-ingest from scratch', false)
   .option('--since <date>', 'override the configured git cutoff, e.g. 1.year.ago')
   .option('--shell-lines <count>', 'override the configured shell tail-window size', (v) => Number.parseInt(v, 10))
+  .option('--conversation', 'force the conversation source on for this run, without persisting it to config', false)
+  .option('--no-embed', 'skip the vector-embedding pass for this run')
   .option('-q, --quiet', 'only print the final summary', false)
   .action((options) =>
     guard(() =>
@@ -64,6 +73,8 @@ program
         rebuild: options.rebuild,
         since: options.since,
         shellTailLines: options.shellLines,
+        conversationOverride: options.conversation ? true : undefined,
+        noEmbed: !options.embed,
         quiet: options.quiet,
       }),
     )(),
@@ -105,6 +116,7 @@ program
   .option('-b, --budget <tokens>', 'max tokens in the packed context', (v) => Number.parseInt(v, 10), 2000)
   .option('-n, --candidates <count>', 'how many search hits to rank before packing', (v) => Number.parseInt(v, 10), 30)
   .option('--half-life <days>', 'days for a node\'s recency weight to halve', (v) => Number.parseFloat(v))
+  .option('--no-vector', 'BM25 only -- skip embedding the query and vector search')
   .option('--json', 'emit the packed result as JSON on stdout', false)
   .action((text: string, options) =>
     guard(() =>
@@ -114,6 +126,7 @@ program
         budget: options.budget,
         candidates: options.candidates,
         halfLifeDays: options.halfLife,
+        noVector: !options.vector,
         json: options.json,
       }),
     )(),
@@ -153,6 +166,21 @@ program
       runScanShell({ cwd: options.cwd, tailLines: options.tailLines, minSignal: options.minSignal, json: options.json }),
     )(),
   );
+
+program
+  .command('scan-conversation')
+  .description('Preview the MemoryNodes the conversation transcript would produce (writes nothing)')
+  .option('-C, --cwd <path>', 'repository path', process.cwd())
+  .option('--min-signal <score>', 'drop nodes below this signal', (v) => Number.parseFloat(v), 0)
+  .option('--json', 'emit MemoryNodes as JSON on stdout', false)
+  .action((options) =>
+    guard(() => runScanConversation({ cwd: options.cwd, minSignal: options.minSignal, json: options.json }))(),
+  );
+
+program
+  .command('mcp')
+  .description('Start the MCP server (stdio transport) for Claude Desktop, Cursor, Windsurf, etc.')
+  .action(() => guard(() => runMcpServer().then(() => 0))());
 
 program.parseAsync(process.argv).catch((err: unknown) => {
   const message = err instanceof Error ? err.message : String(err);

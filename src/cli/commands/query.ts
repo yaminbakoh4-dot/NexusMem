@@ -1,8 +1,9 @@
 import pc from 'picocolors';
 import { approxTokens } from '../../core/text.js';
-import { packContext, renderContextBlock } from '../../retrieval/pack.js';
-import { rankHits } from '../../retrieval/rank.js';
+import { renderContextBlock } from '../../retrieval/pack.js';
+import { runHybridQuery } from '../../retrieval/query-pipeline.js';
 import { MemoryStore } from '../../store/store.js';
+import { OllamaEmbeddingProvider } from '../../vector/embed.js';
 import { loadContext } from '../context.js';
 
 export interface QueryOptions {
@@ -10,9 +11,11 @@ export interface QueryOptions {
   query: string;
   /** Token budget for the packed context that gets printed to stdout. */
   budget: number;
-  /** How many FTS candidates to rank/pack from, before the budget is applied. */
+  /** How many FTS/vector candidates to rank/pack from, before the budget is applied. */
   candidates: number;
   halfLifeDays?: number;
+  /** Skip embedding the query and vector search entirely -- BM25-only, same as before hybrid retrieval existed. */
+  noVector?: boolean;
   json: boolean;
 }
 
@@ -21,9 +24,14 @@ export async function runQuery(opts: QueryOptions): Promise<number> {
   const store = MemoryStore.open(ws.dbPath);
 
   try {
-    const hits = store.search(projectId, opts.query, opts.candidates);
-    const ranked = rankHits(hits, { halfLifeDays: opts.halfLifeDays });
-    const packed = packContext(ranked, opts.budget);
+    const { bm25Count, vectorCount, hits, packed } = await runHybridQuery(store, projectId, opts.query, {
+      budget: opts.budget,
+      candidates: opts.candidates,
+      halfLifeDays: opts.halfLifeDays,
+      embeddingProvider: opts.noVector ? null : new OllamaEmbeddingProvider(),
+    });
+
+    const matched = hits.length;
 
     // What it would have cost to hand the agent every match, unranked and
     // unpacked -- the number the packing step is actually saving against.
@@ -41,13 +49,13 @@ export async function runQuery(opts: QueryOptions): Promise<number> {
         `${JSON.stringify(
           {
             query: opts.query,
-            matched: hits.length,
+            matched,
+            bm25Matched: bm25Count,
+            vectorMatched: vectorCount,
             packed: packed.nodes,
             tokensUsed: packed.tokensUsed,
             tokensBudget: packed.tokensBudget,
             droppedForBudget: packed.droppedForBudget,
-            rawTokensIfUnpacked: rawTokens,
-            estimatedSavingsPct: Number((savedPct * 100).toFixed(1)),
           },
           null,
           2,
@@ -56,14 +64,14 @@ export async function runQuery(opts: QueryOptions): Promise<number> {
       return 0;
     }
 
-    if (hits.length === 0) {
+    if (matched === 0) {
       process.stderr.write(`${pc.yellow('no matches')} for "${opts.query}"\n`);
       return 0;
     }
 
     process.stderr.write(
       [
-        `${pc.dim('matched')} ${hits.length} node(s), packed ${pc.bold(String(packed.nodes.length))} into budget`,
+        `${pc.dim('matched')} ${bm25Count} bm25${vectorCount > 0 ? ` + ${vectorCount} vector` : ''}, packed ${pc.bold(String(packed.nodes.length))} into budget`,
         `${pc.dim('tokens ')} ${packed.tokensUsed}/${packed.tokensBudget}` +
           (packed.droppedForBudget ? pc.dim(`  (${packed.droppedForBudget} dropped for budget)`) : ''),
         rawTokens > 0

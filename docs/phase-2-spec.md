@@ -1,8 +1,9 @@
 # Phase 2 architecture draft
 
-**Status:** draft, not yet implemented. Written 2026-08-08 at the end of the
-Phase 1 session, to hand off cleanly to whoever (human or agent) picks this
-up next.
+**Status:** implemented (conversation collector, hybrid vector search, MCP
+server all shipped 2026-08-08), acceptance test **not yet passing** -- see
+below. Originally written 2026-08-08 at the end of the Phase 1 session; this
+update is from the same day, after building against it.
 
 **Why these three, together:** dogfooding Phase 1 on this repo the same day
 showed a real design question return an unrelated `cd` command as its top
@@ -15,10 +16,46 @@ the problem alone.
 
 **Acceptance test for this phase:** re-run
 `nexusmem query "why floors on ranking factor score"` against this repo.
-Today it returns a stray `cd` command. Phase 2 is done when it returns the
-actual rationale from `src/retrieval/rank.ts`.
+Originally it returned a stray `cd` command. Phase 2 is done when it returns
+the actual rationale from `src/retrieval/rank.ts`.
 
----
+### Acceptance test result: not met, root cause diagnosed
+
+After shipping all three pieces and running a real sync (git + shell +
+conversation + embeddings, 319 nodes, 199 embedded), the query still does
+**not** surface the rationale cleanly. Top hits are meta-conversation about
+this very project (messages *about* the roadmap, the rename, session
+wrap-up) and shell noise -- better-scoring by pure keyword/semantic
+proximity than the actual explanation, but not the right answer.
+
+Diagnosis, not a guess -- checked directly against the database:
+
+```
+nodes mentioning floor/veto/crush: 6
+  a5c93... len=4000  (hit the cap)
+  53708... len=4000  (hit the cap)
+  af57f... len=4000  (hit the cap)
+  c9541... len=2069
+  d28a8... len=745
+  8c84a... len=2487
+```
+
+The explanation **is** in the index. Half the nodes that mention it are
+truncated at exactly `maxBodyChars` (4000). The root cause is granularity,
+not truncation alone: one exchange = one user turn + *the entire* assistant
+reply, however long and however many unrelated topics it covers. A single
+reply in this session routinely covers several distinct design points under
+different headers -- the floors explanation is real content in there, but
+it's one paragraph diluted inside 4000+ characters about other things, and
+neither BM25 nor a single embedding vector for the whole blob can pinpoint
+it.
+
+**Fix for next session:** split an assistant reply into multiple nodes at
+paragraph or markdown-header boundaries, still anchored to the same user
+turn (same `naturalKey` prefix, an appended segment index), instead of one
+node per exchange regardless of length. Chunk size is the standard RAG
+lesson here, and this codebase now has direct, measured evidence for it
+rather than a general principle taken on faith.
 
 ## 1. Conversation collector
 

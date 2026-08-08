@@ -49,10 +49,22 @@ export const ConfigSchema = z.object({
           tailLines: z.number().int().positive().default(300),
         })
         .default({ enabled: true, tailLines: 300 }),
+      /**
+       * Opt-in, unlike git/shell: conversation transcripts are the source
+       * most likely to contain something sensitive (a pasted credential,
+       * confidential discussion), so this must be a deliberate choice, not
+       * an automatic default. See docs/phase-2-spec.md.
+       */
+      conversation: z
+        .object({
+          enabled: z.boolean().default(false),
+        })
+        .default({ enabled: false }),
     })
     .default({
       git: { enabled: true, since: null, includeMerges: true },
       shell: { enabled: true, tailLines: 300 },
+      conversation: { enabled: false },
     }),
   limits: z
     .object({

@@ -87,12 +87,33 @@ CREATE TABLE sync_state (
 );
 `;
 
+/**
+ * nomic-embed-text produces 768-dimensional vectors (confirmed against a
+ * live Ollama call, not assumed). `vec0` fixes a table's dimension at
+ * creation time, so switching embedding models later means a new
+ * migration and a re-embed, not an in-place change to this one.
+ */
+export const EMBEDDING_DIM = 768;
+
+const V2 = `
+-- Unlike nodes_fts, this is NOT trigger-populated: computing an embedding
+-- means an async call to an external model, which a synchronous SQL trigger
+-- cannot make. Rows are written explicitly by the embedding pass in
+-- vector/embed.ts, keyed by the same rowid nodes_fts already uses.
+CREATE VIRTUAL TABLE nodes_vec USING vec0 (
+  embedding float[${EMBEDDING_DIM}]
+);
+`;
+
 interface Migration {
   version: number;
   up: (db: Database) => void;
 }
 
-const MIGRATIONS: Migration[] = [{ version: 1, up: (db) => db.exec(V1) }];
+const MIGRATIONS: Migration[] = [
+  { version: 1, up: (db) => db.exec(V1) },
+  { version: 2, up: (db) => db.exec(V2) },
+];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;
 

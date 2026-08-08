@@ -17,6 +17,13 @@ export interface RankOptions {
   halfLifeDays?: number;
   /** Injectable for deterministic tests; defaults to the real clock. */
   now?: Date;
+  /**
+   * Pre-fused relevance (e.g. from `reciprocalRankFusion` over BM25 +
+   * vector search), keyed by node id, higher-is-better. When provided, this
+   * replaces the BM25-only `relevance` derivation entirely -- vector search
+   * changes what counts as relevant, not the rest of the ranking formula.
+   */
+  relevanceScores?: ReadonlyMap<string, number>;
 }
 
 /**
@@ -52,6 +59,24 @@ function normalizeRelevance(hits: readonly SearchHit[]): number[] {
   });
 }
 
+/**
+ * Same rescale-into-[floor,1] treatment as `normalizeRelevance`, but for an
+ * externally supplied score where *higher* is better (RRF's convention),
+ * unlike bm25's cost convention.
+ */
+function normalizeExternalRelevance(hits: readonly SearchHit[], scores: ReadonlyMap<string, number>): number[] {
+  const values = hits.map((h) => scores.get(h.id) ?? 0);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+
+  if (min === max) return hits.map(() => 1);
+
+  return values.map((v) => {
+    const normalized = (v - min) / (max - min); // best (highest) -> 1
+    return RELEVANCE_FLOOR + (1 - RELEVANCE_FLOOR) * normalized;
+  });
+}
+
 function ageDaysOf(ts: string, now: Date): number {
   const parsed = Date.parse(ts);
   if (Number.isNaN(parsed)) return 0;
@@ -71,7 +96,7 @@ export function rankHits(hits: readonly SearchHit[], opts: RankOptions = {}): Ra
 
   const halfLife = opts.halfLifeDays ?? DEFAULT_HALF_LIFE_DAYS;
   const now = opts.now ?? new Date();
-  const relevances = normalizeRelevance(hits);
+  const relevances = opts.relevanceScores ? normalizeExternalRelevance(hits, opts.relevanceScores) : normalizeRelevance(hits);
 
   const ranked = hits.map((hit, i) => {
     const relevance = relevances[i] ?? RELEVANCE_FLOOR;

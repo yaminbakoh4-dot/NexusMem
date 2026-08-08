@@ -19,6 +19,8 @@ export interface InitOptions {
   force: boolean;
   /** Also install the opt-in PowerShell hook that logs cwd + exit code + timestamp. */
   hook: boolean;
+  /** Persist `sources.conversation.enabled = true` in config.json. */
+  enableConversation: boolean;
 }
 
 export async function runInit(opts: InitOptions): Promise<number> {
@@ -38,7 +40,9 @@ export async function runInit(opts: InitOptions): Promise<number> {
   }
 
   await writeWorkspaceGitignore(ws);
-  await writeConfig(ws, defaultConfig(projectId));
+  const config = defaultConfig(projectId);
+  if (opts.enableConversation) config.sources.conversation.enabled = true;
+  await writeConfig(ws, config);
 
   // Creating the database here means `init` surfaces native-module or
   // filesystem problems immediately, rather than halfway through a long sync.
@@ -56,6 +60,10 @@ export async function runInit(opts: InitOptions): Promise<number> {
     `  branch   ${repo.branch ?? pc.yellow('(detached)')}`,
     `  schema   v${LATEST_SCHEMA_VERSION}`,
   ];
+
+  if (opts.enableConversation) {
+    lines.push(`  ${pc.yellow('conversation source enabled')} -- transcripts will be redacted-but-indexed on sync`);
+  }
 
   if (opts.hook) {
     try {

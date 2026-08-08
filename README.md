@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-informational)](LICENSE)
 ![Node](https://img.shields.io/badge/node-%3E%3D20.11-brightgreen)
-![Status](https://img.shields.io/badge/phase%201-feature--complete-blue)
+![Status](https://img.shields.io/badge/phase%202-shipped%2C%20acceptance%20test%20open-yellow)
 
 > A local-first persistent memory engine — an **SSD for AI coding agents**.
 
@@ -35,6 +35,17 @@ context that's actually relevant** to the question in front of it.
   figure).
 - 🧩 **Kind-agnostic core.** Every source normalizes to one `MemoryNode`
   shape, so a shell command and a git commit rank on a level field.
+- 🧠 **Hybrid retrieval (BM25 + vector search).** `sqlite-vec` embeddings via
+  a local Ollama model, fused with BM25 through Reciprocal Rank Fusion --
+  catches a semantically-related match with no shared keywords, not just
+  exact terms. Degrades to BM25-only automatically if Ollama isn't running.
+- 💬 **Conversation collector (opt-in).** Indexes the AI coding assistant
+  transcript that produced the code, redacted for secrets before it's ever
+  written to disk. Real, but retrieval precision on long replies is a known
+  open issue -- see [Phase 2, honestly](#phase-2-honestly) below.
+- 🔌 **MCP server** (`nexusmem mcp`) -- the same search/sync/status exposed
+  as tools any MCP client (Claude Desktop, Cursor, Windsurf, ...) can call
+  directly, no side terminal required.
 
 ## Quick start
 
@@ -111,10 +122,20 @@ lets any one of them crush the other two to nothing, so a perfectly relevant
 five-year-old commit would lose outright to a barely-relevant one from this
 morning. Floors turn each factor into a *reordering* instead of a gate.
 
-**Keyword search before vector search.** Phase 1 uses SQLite FTS5/BM25.
-Developer queries are keyword-heavy (file names, symbols, error strings) —
-exactly where BM25 beats embeddings. `sqlite-vec` + a local Ollama embedding
-model arrive in Phase 2 as *hybrid* retrieval, not as a replacement.
+**Keyword search first, vector search additive, not a replacement.** Phase 1
+shipped SQLite FTS5/BM25 alone -- developer queries are keyword-heavy (file
+names, symbols, error strings), exactly where BM25 wins. Phase 2 added
+`sqlite-vec` + a local Ollama embedding model on top via Reciprocal Rank
+Fusion, so a semantically-related match with no shared keywords now surfaces
+too, without weakening exact-term queries BM25 already handled well.
+
+**Embeddings are not trigger-populated, unlike `nodes_fts`.** Computing an
+embedding means an async HTTP call to Ollama, which a synchronous SQL
+trigger cannot make -- so `nodes_vec` is filled by an explicit pass after
+`sync` writes nodes, and a node whose content changes has its stale
+embedding deleted so the next pass re-embeds it. If Ollama isn't running,
+that pass embeds nothing and `query` falls back to BM25-only automatically;
+nothing about `sync` or `query` requires an embedding provider to exist.
 
 **Streaming collectors.** `git log` is parsed incrementally from a stream, and
 breaking out of the iterator kills the child process — `--limit` never pays
@@ -167,13 +188,15 @@ src/
   core/          MemoryNode shape, id derivation, project identity  (pure)
   git/           low-level git access: exec, repo info, log parsing (pure parser)
   shell/         shell-history strategies: PSReadLine, bash, zsh, hook log (pure parsers)
+  conversation/  transcript reader (Claude Code), redaction, path slugging (pure parser)
   hooks/         PowerShell profile hook: snippet generation + install/remove
-  collectors/    raw source events (git, shell) -> MemoryNode
+  collectors/    raw source events (git, shell, conversation) -> MemoryNode
   config/        .nexusmem workspace paths + validated config
-  store/         SQLite schema, migrations, repository, FTS5 query building
-  retrieval/     ranking (relevance x signal x recency) + token-budgeted packing
+  store/         SQLite schema, migrations, repository, FTS5 + sqlite-vec query building
+  vector/        Ollama embedding client, embedding-pass orchestration
+  retrieval/     ranking, RRF fusion, token-budgeted packing, the shared query pipeline
+  mcp/           MCP server (stdio) + tool wrappers over the same CLI pipeline
   cli/           nexusmem command surface
-  mcp/           Model Context Protocol server         (Phase 2)
 tests/
 ```
 
@@ -183,7 +206,7 @@ tests/
 <repo>/.nexusmem/
   .gitignore     '*' — the workspace ignores itself
   config.json    validated on read; corrupt config fails loudly, never silently
-  memory.db      SQLite (WAL): nodes, node_files, nodes_fts, sync_state
+  memory.db      SQLite (WAL): nodes, node_files, nodes_fts, nodes_vec, sync_state
 ```
 
 Delete `.nexusmem/` and nothing is lost that `sync` cannot rebuild.
@@ -191,16 +214,43 @@ Delete `.nexusmem/` and nothing is lost that `sync` cannot rebuild.
 ## Command reference
 
 ```
-nexusmem init          create .nexusmem/ and the database
-nexusmem sync          ingest new history (incremental, git + shell)
-nexusmem status        what is currently remembered, per source
-nexusmem query <text>  search + rank + pack remembered context for a question
-nexusmem scan-git      preview git nodes without writing
-nexusmem scan-shell    preview shell nodes without writing
-nexusmem hook install  opt in to high-quality shell capture
-nexusmem hook remove   undo the above
-nexusmem hook status   check whether the hook is installed
+nexusmem init             create .nexusmem/ and the database
+nexusmem sync             ingest new history (git + shell + embeddings; --conversation to opt in)
+nexusmem status           what is currently remembered, per source
+nexusmem query <text>     search + rank + pack remembered context (--no-vector for BM25-only)
+nexusmem scan-git         preview git nodes without writing
+nexusmem scan-shell       preview shell nodes without writing
+nexusmem scan-conversation  preview conversation nodes without writing
+nexusmem hook install     opt in to high-quality shell capture
+nexusmem hook remove      undo the above
+nexusmem hook status      check whether the hook is installed
+nexusmem mcp              start the MCP server (stdio) for Claude Desktop / Cursor / Windsurf
 ```
+
+Useful sync flags: `--conversation` opts the conversation source in for one run
+without persisting it to config; `--no-embed` skips the vector-embedding pass
+(faster when you know Ollama isn't running).
+
+### Using the MCP server
+
+Point any MCP client at `nexusmem mcp` (stdio transport, no other setup). For
+Claude Desktop / Cursor / Windsurf-style config files:
+
+```json
+{
+  "mcpServers": {
+    "nexusmem": {
+      "command": "nexusmem",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+Exposes `search_memory`, `sync_project` and `get_status`, each taking an
+explicit `projectRoot` (MCP tool calls carry no implicit shell cwd) --
+`sync_project` runs `init` first automatically if the repo hasn't been set up
+yet.
 
 Every command accepts `-C, --cwd <path>` to target a repository other than
 the current directory. Run `nexusmem <command> --help` for the full flag
@@ -237,8 +287,8 @@ looking for one.
 | Phase | Scope |
 | --- | --- |
 | 1 | `init` / `sync` / `query`, git + shell collectors, SQLite + FTS5, token-budgeted context packing |
-| 2 | `sqlite-vec` + Ollama embeddings, hybrid retrieval, MCP server, **conversation collector** (see below) |
-| 3 | Diff-level nodes, session summarization via a local SLM, cross-project recall |
+| 2 | `sqlite-vec` + Ollama embeddings, hybrid retrieval (RRF), MCP server, conversation collector -- **shipped, acceptance test not yet passing** (see [`docs/phase-2-spec.md`](docs/phase-2-spec.md)) |
+| 3 | Chunk conversation exchanges below the whole-reply level, diff-level nodes, session summarization via a local SLM, cross-project recall |
 
 **Highest-priority addition: a conversation/session collector.** Dogfooding
 this tool on its own repo (2026-08-08) showed why. This project's git history
@@ -251,8 +301,22 @@ paths the way it does) exists only in the AI coding assistant conversation
 that produced the code, and NexusMem has no collector for that yet — only
 git and shell. Capturing the conversation itself, not just its code diffs,
 is probably worth more than everything else on this roadmap combined.
-See [`docs/phase-2-spec.md`](docs/phase-2-spec.md) for the architecture draft
-covering all three Phase 2 items.
+See [`docs/phase-2-spec.md`](docs/phase-2-spec.md) for the architecture and,
+below, an honest report of where it stands after actually building it.
+
+### Phase 2, honestly
+
+All three pieces shipped and are exercised by real tests (142 passing,
+including live `sqlite-vec` KNN queries and a real MCP stdio JSON-RPC round
+trip) -- but the acceptance test this phase was built against
+(`nexusmem query "why floors on ranking factor score"` should surface the
+real rationale from `src/retrieval/rank.ts`) still does not pass. Diagnosed,
+not guessed: the explanation text is confirmed present in the index, but
+exchange-level granularity (one node per user turn + the *entire* assistant
+reply, capped at 4000 chars) dilutes and sometimes truncates a specific
+technical point buried inside a long, multi-topic response. Full diagnosis
+and the fix planned for next -- chunking replies below the whole-exchange
+level -- is in [`docs/phase-2-spec.md`](docs/phase-2-spec.md).
 
 ### Known limitations
 
