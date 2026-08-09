@@ -288,7 +288,14 @@ looking for one.
 | --- | --- |
 | 1 | `init` / `sync` / `query`, git + shell collectors, SQLite + FTS5, token-budgeted context packing |
 | 2 | `sqlite-vec` + Ollama embeddings, hybrid retrieval (RRF), MCP server, chunked conversation collector -- **shipped, acceptance test passing** (see [`docs/phase-2-spec.md`](docs/phase-2-spec.md)) |
-| 3 | Diff-level nodes, session summarization via a local SLM, cross-project recall, batch the embedding pass so one `sync` embeds a whole large corpus instead of needing several |
+| 3 | **Project docs collector** (index `.md` files -- README, architecture docs; the one gap live MCP dogfooding actually surfaced, see below), diff-level nodes, session summarization via a local SLM, cross-project recall, batch the embedding pass so one `sync` embeds a whole large corpus instead of needing several |
+
+**Why a docs collector, found by dogfooding the live MCP server (2026-08-08):**
+`search_memory("why did we choose BM25 before vector search")` returned
+related commits and conversation turns, but not a precise answer -- because
+the actual reasoning lives in `README.md`'s prose, which no collector reads.
+Git, shell and conversation are covered; the project's own `.md` files are
+the one source with real "why" content NexusMem still can't see.
 
 **Highest-priority addition: a conversation/session collector.** Dogfooding
 this tool on its own repo (2026-08-08) showed why. This project's git history
