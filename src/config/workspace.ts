@@ -60,11 +60,20 @@ export const ConfigSchema = z.object({
           enabled: z.boolean().default(false),
         })
         .default({ enabled: false }),
+      /** Tracked `.md` files -- README, architecture docs. On by default like git/shell: no secrets risk, just project prose. */
+      docs: z
+        .object({
+          enabled: z.boolean().default(true),
+          /** git pathspecs passed to `git ls-files`. */
+          include: z.array(z.string()).default(['*.md']),
+        })
+        .default({ enabled: true, include: ['*.md'] }),
     })
     .default({
       git: { enabled: true, since: null, includeMerges: true },
       shell: { enabled: true, tailLines: 300 },
       conversation: { enabled: false },
+      docs: { enabled: true, include: ['*.md'] },
     }),
   limits: z
     .object({

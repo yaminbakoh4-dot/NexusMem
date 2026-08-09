@@ -1,9 +1,11 @@
 import pc from 'picocolors';
 import { collectConversationTurns } from '../../collectors/conversation.js';
+import { collectDocFiles } from '../../collectors/docs.js';
 import { collectGitCommits } from '../../collectors/git-commits.js';
 import { collectShellHistory } from '../../collectors/shell-history.js';
 import { collectClaudeCodeTranscripts } from '../../conversation/claude-code-reader.js';
 import type { MemoryNode } from '../../core/types.js';
+import { readDocFiles } from '../../docs/read.js';
 import { isAncestor } from '../../git/repo.js';
 import { collectAvailableShellHistory } from '../../shell/detect.js';
 import { MemoryStore, type IngestStats } from '../../store/store.js';
@@ -195,6 +197,40 @@ async function syncConversation(
   return { totals, seen: nodes.length };
 }
 
+const DOCS_SOURCE = 'docs';
+
+async function syncDocs(
+  store: MemoryStore,
+  projectId: string,
+  repoRoot: string,
+  config: Awaited<ReturnType<typeof loadContext>>['config'],
+  log: (line: string) => void,
+): Promise<{ totals: IngestStats; seen: number }> {
+  const totals: IngestStats = { inserted: 0, updated: 0, unchanged: 0 };
+
+  if (!config.sources.docs.enabled) {
+    log(`${pc.dim('docs')} disabled in config`);
+    return { totals, seen: 0 };
+  }
+
+  const files = await readDocFiles(repoRoot, { include: config.sources.docs.include });
+  if (files.length === 0) {
+    log(`${pc.dim('docs')} no tracked .md files found`);
+    return { totals, seen: 0 };
+  }
+
+  const nodes = collectDocFiles(files, projectId, { maxBodyChars: config.limits.maxBodyChars });
+  if (nodes.length > 0) addStats(totals, store.upsertNodes(nodes));
+
+  // Re-read in full each sync, the same trade the conversation source makes:
+  // content-addressed ids make it idempotent, and a doc file has no cheap
+  // append-only cursor to walk incrementally.
+  store.setSyncCursor(projectId, DOCS_SOURCE, `scanned:${nodes.length}`);
+  log(`  ${pc.dim(`${DOCS_SOURCE}: ${nodes.length} section(s) from ${files.length} file(s)`)}`);
+
+  return { totals, seen: nodes.length };
+}
+
 export async function runSync(opts: SyncOptions): Promise<number> {
   const { repo, ws, projectId, config } = await loadContext(opts.cwd);
   const log = (line: string) => {
@@ -215,6 +251,7 @@ export async function runSync(opts: SyncOptions): Promise<number> {
     const git = await syncGit(store, projectId, opts, repo, config, log);
     const shell = await syncShell(store, projectId, opts, repo.root, config, log);
     const conversation = await syncConversation(store, projectId, repo.root, config, log, opts.conversationOverride);
+    const docs = await syncDocs(store, projectId, repo.root, config, log);
 
     let embedLine = '';
     if (!opts.noEmbed) {
@@ -232,16 +269,18 @@ export async function runSync(opts: SyncOptions): Promise<number> {
     addStats(totals, git.totals);
     addStats(totals, shell.totals);
     addStats(totals, conversation.totals);
+    addStats(totals, docs.totals);
 
     const stats = store.stats(projectId);
     const elapsed = ((Date.now() - started) / 1000).toFixed(2);
 
     const conversationEnabled = opts.conversationOverride ?? config.sources.conversation.enabled;
     const conversationPart = conversationEnabled ? `, ${conversation.seen} conversation exchange(s)` : '';
+    const docsPart = config.sources.docs.enabled ? `, ${docs.seen} doc section(s)` : '';
 
     process.stdout.write(
       [
-        `${pc.green('synced')} ${git.seen} commit(s), ${shell.seen} shell entr${shell.seen === 1 ? 'y' : 'ies'}${conversationPart} in ${elapsed}s`,
+        `${pc.green('synced')} ${git.seen} commit(s), ${shell.seen} shell entr${shell.seen === 1 ? 'y' : 'ies'}${conversationPart}${docsPart} in ${elapsed}s`,
         `  ${pc.green(`+${totals.inserted} new`)}  ${pc.yellow(`~${totals.updated} updated`)}  ${pc.dim(`=${totals.unchanged} unchanged`)}`,
         `  ${pc.dim(`${stats.total} node(s) total across ${stats.distinctFiles} file path(s)`)}`,
         '',

@@ -8,6 +8,7 @@ import { runInit } from './commands/init.js';
 import { runMcpServer } from '../mcp/server.js';
 import { runQuery } from './commands/query.js';
 import { runScanConversation } from './commands/scan-conversation.js';
+import { runScanDocs } from './commands/scan-docs.js';
 import { runScanGit } from './commands/scan-git.js';
 import { runScanShell } from './commands/scan-shell.js';
 import { runStatus } from './commands/status.js';
@@ -176,6 +177,14 @@ program
   .action((options) =>
     guard(() => runScanConversation({ cwd: options.cwd, minSignal: options.minSignal, json: options.json }))(),
   );
+
+program
+  .command('scan-docs')
+  .description('Preview the MemoryNodes tracked .md files would produce (writes nothing)')
+  .option('-C, --cwd <path>', 'repository path', process.cwd())
+  .option('--min-signal <score>', 'drop nodes below this signal', (v) => Number.parseFloat(v), 0)
+  .option('--json', 'emit MemoryNodes as JSON on stdout', false)
+  .action((options) => guard(() => runScanDocs({ cwd: options.cwd, minSignal: options.minSignal, json: options.json }))());
 
 program
   .command('mcp')
