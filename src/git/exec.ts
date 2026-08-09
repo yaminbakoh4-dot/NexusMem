@@ -85,15 +85,57 @@ function toSpawnError(err: unknown, cwd: string, args: string[]): GitSpawnError 
 const BASE_ARGS = ['-c', 'core.quotePath=false', '-c', 'core.pager=', '--no-pager'];
 
 /**
- * Stream `git <args>` stdout as UTF-8 chunks.
+ * Backoff between spawn retries, in milliseconds. Length sets the retry count.
  *
- * Streaming (rather than buffering) matters here: `git log` over a large repo
- * easily exceeds the default exec buffer, and we want the parser to emit nodes
- * incrementally rather than after the whole history has materialised in RAM.
+ * The failures this covers are short-lived contention (an antivirus scanner
+ * holding a new image, momentary handle exhaustion), so the useful waits are
+ * tens to low hundreds of milliseconds. A worst-case run adds ~600ms before
+ * giving up, and only on a path that was going to fail outright before.
  */
-export async function* gitStream(cwd: string, args: string[]): AsyncGenerator<string> {
+const RETRY_DELAYS_MS = [50, 150, 400];
+
+const realSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+export interface GitExecOptions {
+  /** Injectable for deterministic tests; defaults to `child_process.spawn`. */
+  spawn?: typeof spawn;
+  /** Injectable for deterministic tests; defaults to a real timer. */
+  sleep?: (ms: number) => Promise<void>;
+}
+
+/**
+ * Stream `git <args>` stdout as UTF-8 chunks, retrying a transient failure to
+ * start the process.
+ *
+ * Retrying is safe here only because a spawn failure happens strictly before
+ * any output exists: once `git` is running, every remaining failure mode is an
+ * exit code (`GitError`), which is git's own answer and must not be retried.
+ * The `produced` guard enforces that boundary rather than assuming it -- once a
+ * single chunk has reached the consumer, re-running the command would duplicate
+ * output into a parser mid-parse, so at that point the error propagates.
+ */
+export async function* gitStream(cwd: string, args: string[], opts: GitExecOptions = {}): AsyncGenerator<string> {
+  const sleep = opts.sleep ?? realSleep;
+
+  for (let attempt = 0; ; attempt += 1) {
+    let produced = false;
+    try {
+      for await (const chunk of runGitOnce(cwd, args, opts)) {
+        produced = true;
+        yield chunk;
+      }
+      return;
+    } catch (err) {
+      const retryable = err instanceof GitSpawnError && err.transient;
+      if (produced || !retryable || attempt >= RETRY_DELAYS_MS.length) throw err;
+      await sleep(RETRY_DELAYS_MS[attempt]!);
+    }
+  }
+}
+
+async function* runGitOnce(cwd: string, args: string[], opts: GitExecOptions): AsyncGenerator<string> {
   const fullArgs = [...BASE_ARGS, ...args];
-  const child = spawn('git', fullArgs, { cwd, windowsHide: true });
+  const child = (opts.spawn ?? spawn)('git', fullArgs, { cwd, windowsHide: true });
 
   child.stdout.setEncoding('utf8');
   child.stderr.setEncoding('utf8');
@@ -139,16 +181,16 @@ export async function* gitStream(cwd: string, args: string[]): AsyncGenerator<st
 }
 
 /** Buffered variant, for commands with small, bounded output. */
-export async function git(cwd: string, args: string[]): Promise<string> {
+export async function git(cwd: string, args: string[], opts: GitExecOptions = {}): Promise<string> {
   let out = '';
-  for await (const chunk of gitStream(cwd, args)) out += chunk;
+  for await (const chunk of gitStream(cwd, args, opts)) out += chunk;
   return out;
 }
 
 /** Buffered variant that returns `null` instead of throwing (e.g. no origin remote). */
-export async function gitOrNull(cwd: string, args: string[]): Promise<string | null> {
+export async function gitOrNull(cwd: string, args: string[], opts: GitExecOptions = {}): Promise<string | null> {
   try {
-    return await git(cwd, args);
+    return await git(cwd, args, opts);
   } catch (err) {
     if (err instanceof GitError) return null;
     throw err;

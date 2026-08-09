@@ -1,10 +1,13 @@
-import { execFileSync } from 'node:child_process';
+import { type spawn as nodeSpawn } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Readable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { GitError, GitSpawnError } from '../src/git/exec.js';
+import { git, GitError, GitSpawnError, gitStream } from '../src/git/exec.js';
 import { NotAGitRepositoryError, readRepoInfo } from '../src/git/repo.js';
+import { gitFixture } from './helpers.js';
 
 /**
  * These cover the distinction the error types exist for: whether git ran at
@@ -57,9 +60,9 @@ describe('git failure classification', () => {
   });
 
   it('keeps git\'s own message for a failure that is not "not a repository"', async () => {
-    execFileSync('git', ['init', '-q'], { cwd: dir });
+    gitFixture(dir, ['init', '-q']);
     // A config value git cannot parse: rev-parse fails, but the repo is real.
-    execFileSync('git', ['config', 'core.repositoryformatversion', 'bogus'], { cwd: dir });
+    gitFixture(dir, ['config', 'core.repositoryformatversion', 'bogus']);
 
     const err = await readRepoInfo(dir).catch((e: unknown) => e);
 
@@ -70,7 +73,7 @@ describe('git failure classification', () => {
   });
 
   it('still resolves a healthy repository', async () => {
-    const run = (...args: string[]) => execFileSync('git', args, { cwd: dir, stdio: 'ignore' });
+    const run = (...args: string[]) => gitFixture(dir, args);
     run('init', '-q', '-b', 'main');
     run('config', 'user.email', 'test@example.com');
     run('config', 'user.name', 'Test');
@@ -81,5 +84,117 @@ describe('git failure classification', () => {
     expect(info.branch).toBe('main');
     expect(info.head).toMatch(/^[0-9a-f]{40}$/);
     expect(info.originUrl).toBeNull(); // no remote configured
+  });
+});
+
+/**
+ * The Windows `uv_spawn` race these retries exist for cannot be provoked on
+ * demand, so `spawn` is injected instead of waiting for the real thing. `sleep`
+ * is injected too, both to keep the suite fast and to make the backoff schedule
+ * itself assertable rather than merely "something waited".
+ */
+describe('transient spawn retry', () => {
+  const errno = (code: string): NodeJS.ErrnoException => Object.assign(new Error(`spawn git ${code}`), { code });
+
+  function stream(text: string): Readable {
+    const r = new Readable({ read() {} });
+    if (text) r.push(text);
+    r.push(null);
+    return r;
+  }
+
+  /** Minimal stand-in for the ChildProcess surface gitStream actually touches. */
+  function child(outcome: { stdout?: string; stderr?: string; code?: number; error?: NodeJS.ErrnoException }) {
+    const c = new EventEmitter() as EventEmitter & Record<string, unknown>;
+    c.stdout = stream(outcome.stdout ?? '');
+    c.stderr = stream(outcome.stderr ?? '');
+    c.exitCode = null;
+    c.kill = () => undefined;
+
+    setImmediate(() => {
+      if (outcome.error) {
+        c.emit('error', outcome.error);
+        return;
+      }
+      c.exitCode = outcome.code ?? 0;
+      c.emit('close', outcome.code ?? 0);
+    });
+
+    return c;
+  }
+
+  /** Returns a spawn stub that plays `outcomes` in order, plus the call count and observed backoff. */
+  function harness(outcomes: Array<Parameters<typeof child>[0]>) {
+    const sleeps: number[] = [];
+    let calls = 0;
+    const spawn = (() => {
+      const outcome = outcomes[Math.min(calls, outcomes.length - 1)]!;
+      calls += 1;
+      return child(outcome);
+    }) as unknown as typeof nodeSpawn;
+
+    return {
+      sleeps,
+      calls: () => calls,
+      opts: { spawn, sleep: async (ms: number) => void sleeps.push(ms) },
+    };
+  }
+
+  it('retries a transient spawn failure and returns the eventual output', async () => {
+    const h = harness([{ error: errno('EAGAIN') }, { error: errno('EPERM') }, { stdout: 'refs/heads/main\n' }]);
+
+    await expect(git('/repo', ['rev-parse', '--abbrev-ref', 'HEAD'], h.opts)).resolves.toBe('refs/heads/main\n');
+
+    expect(h.calls()).toBe(3);
+    expect(h.sleeps).toEqual([50, 150]); // backoff schedule, in order
+  });
+
+  it('gives up after the last delay and reports the real spawn error', async () => {
+    const h = harness([{ error: errno('EAGAIN') }]);
+
+    const err = await git('/repo', ['status'], h.opts).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(GitSpawnError);
+    expect((err as GitSpawnError).code).toBe('EAGAIN');
+    expect(h.calls()).toBe(4); // one attempt plus three retries
+    expect(h.sleeps).toEqual([50, 150, 400]);
+  });
+
+  it('does not retry ENOENT -- a missing binary or cwd does not fix itself', async () => {
+    const h = harness([{ error: errno('ENOENT') }]);
+
+    await expect(git('/repo', ['status'], h.opts)).rejects.toBeInstanceOf(GitSpawnError);
+
+    expect(h.calls()).toBe(1);
+    expect(h.sleeps).toEqual([]);
+  });
+
+  it('does not retry a non-zero exit -- that is git\'s own answer, not a failure to start', async () => {
+    const h = harness([{ code: 128, stderr: 'fatal: not a git repository' }]);
+
+    await expect(git('/repo', ['rev-parse'], h.opts)).rejects.toBeInstanceOf(GitError);
+
+    expect(h.calls()).toBe(1);
+  });
+
+  it('does not retry once output has already reached the consumer', async () => {
+    // Guards the streaming boundary: re-running here would replay chunks into a
+    // parser that has already consumed them.
+    const h = harness([{ stdout: 'commit 1\n', error: errno('EAGAIN') }]);
+    const chunks: string[] = [];
+
+    const err = await (async () => {
+      try {
+        for await (const chunk of gitStream('/repo', ['log'], h.opts)) chunks.push(chunk);
+        return null;
+      } catch (e) {
+        return e;
+      }
+    })();
+
+    expect(chunks).toEqual(['commit 1\n']);
+    expect(err).toBeInstanceOf(GitSpawnError);
+    expect(h.calls()).toBe(1);
+    expect(h.sleeps).toEqual([]);
   });
 });

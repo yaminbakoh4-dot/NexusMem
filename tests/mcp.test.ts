@@ -1,4 +1,3 @@
-import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,6 +8,7 @@ import { createServer } from '../src/mcp/server.js';
 import { getStatus, searchMemory, syncProject } from '../src/mcp/tools.js';
 import { MemoryStore } from '../src/store/store.js';
 import { makeProjectId } from '../src/core/project.js';
+import { gitFixture } from './helpers.js';
 
 /**
  * These exercise the MCP tool handlers directly (as plain async functions),
@@ -20,7 +20,7 @@ import { makeProjectId } from '../src/core/project.js';
 
 function initGitRepo(dir: string): void {
   const env = { ...process.env, GIT_AUTHOR_NAME: 'T', GIT_AUTHOR_EMAIL: 't@example.com', GIT_COMMITTER_NAME: 'T', GIT_COMMITTER_EMAIL: 't@example.com' };
-  const g = (...args: string[]) => execFileSync('git', args, { cwd: dir, env, stdio: 'ignore' });
+  const g = (...args: string[]) => gitFixture(dir, args, { env });
   g('init', '-q', '-b', 'main');
   writeFileSync(join(dir, 'a.txt'), 'hello\n');
   g('add', '.');
@@ -69,9 +69,8 @@ describe('mcp tools', () => {
     const otherDir = mkdtempSync(join(tmpdir(), 'nexusmem-mcp-other-'));
     initGitRepo(otherDir);
     writeFileSync(join(otherDir, 'b.txt'), 'x\n');
-    execFileSync('git', ['add', '.'], { cwd: otherDir });
-    execFileSync('git', ['commit', '-q', '-m', 'feat: unrelated other-project change'], {
-      cwd: otherDir,
+    gitFixture(otherDir, ['add', '.']);
+    gitFixture(otherDir, ['commit', '-q', '-m', 'feat: unrelated other-project change'], {
       env: { ...process.env, GIT_AUTHOR_NAME: 'T', GIT_AUTHOR_EMAIL: 't@example.com', GIT_COMMITTER_NAME: 'T', GIT_COMMITTER_EMAIL: 't@example.com' },
     });
 
