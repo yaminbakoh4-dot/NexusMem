@@ -21,6 +21,16 @@ npm-debug.log*
 .env.*
 !.env.example
 
+# Private planning notes. Deliberately kept out of the repository: this is a
+# public remote, so anything committed here is published permanently, and the
+# roadmap is not something the project wants to publish.
+#
+# Being untracked also keeps it out of NexusMem's own corpus for free -- the
+# docs collector reads `git ls-files -- '*.md'`, so an ignored file is never
+# indexed and can never surface in a packed context block.
+ROADMAP.local.md
+*.local.md
+
 # Editor / OS cruft.
 .vscode/
 .idea/

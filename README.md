@@ -270,6 +270,43 @@ Deleting `.nexusmem/` loses nothing that `sync` cannot rebuild.
 
 ---
 
+## Roadmap
+
+Phases 1 and 2 are shipped. Phase 3 is in progress.
+
+### Phase 1 — Core ingestion and retrieval
+
+- [x] `init` / `sync` / `query` command surface
+- [x] Git collector (commits, diff stats, renames, conventional-commit signal)
+- [x] Shell collector (PSReadLine, bash, zsh) with optional PowerShell hook
+- [x] SQLite storage with FTS5/BM25
+- [x] Token-budgeted context packing
+
+### Phase 2 — Hybrid retrieval and MCP
+
+- [x] `sqlite-vec` embeddings via a local Ollama model
+- [x] Reciprocal Rank Fusion over BM25 + vector results
+- [x] MCP server (stdio): `search_memory`, `sync_project`, `get_status`
+- [x] Conversation collector (opt-in), chunked below whole-exchange granularity
+
+### Phase 3 — In progress
+
+- [x] Docs collector for tracked Markdown files
+- [x] Scoped pruning of orphaned doc sections on re-sync
+- [ ] Diff-level nodes (currently commit-level only)
+- [ ] Session summarization via a local SLM
+- [ ] Cross-project recall (queries are scoped to one project today)
+- [ ] Batch the embedding pass (capped at 200 nodes per `sync`)
+
+### Before a tagged release
+
+- [ ] CI
+- [ ] Retry on transient process-spawn failures on Windows
+- [ ] Benchmark against a large repository — the >70% end-to-end target is
+      unproven at this corpus size, where ~40% is what was measured
+
+---
+
 ## Development & Testing
 
 ```bash
