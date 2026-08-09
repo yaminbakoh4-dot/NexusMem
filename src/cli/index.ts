@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import pc from 'picocolors';
 import { ConfigError } from '../config/workspace.js';
+import { GitSpawnError } from '../git/exec.js';
 import { NotAGitRepositoryError } from '../git/repo.js';
 import { ProfileNotFoundError } from '../hooks/install.js';
 import { runHookInstall, runHookRemove, runHookStatus } from './commands/hook.js';
@@ -16,7 +17,14 @@ import { runSync } from './commands/sync.js';
 
 /** Failures the user can act on, reported without a stack trace. */
 function isExpected(err: unknown): err is Error {
-  return err instanceof NotAGitRepositoryError || err instanceof ConfigError || err instanceof ProfileNotFoundError;
+  return (
+    err instanceof NotAGitRepositoryError ||
+    // "git isn't installed" and "the spawn failed, try again" are both things
+    // the user fixes, not stack traces they debug.
+    err instanceof GitSpawnError ||
+    err instanceof ConfigError ||
+    err instanceof ProfileNotFoundError
+  );
 }
 
 /** Wrap a command so expected failures exit 1 with a clean message. */
