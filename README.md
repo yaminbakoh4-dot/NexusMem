@@ -30,9 +30,10 @@ context that's actually relevant** to the question in front of it.
 - 🎯 **Ranked, budgeted retrieval** — `relevance × structural signal ×
   recency`, packed to fit whatever token budget you give it. Designed so
   that at real repo scale, irrelevant history is left out entirely rather
-  than summarized down — that's where the token savings actually come from
-  (see [Benchmarks](#benchmarks) for honest, measured numbers, not a marketing
-  figure).
+  than summarized down — that's where the token savings actually come from.
+  [Benchmarks](#benchmarks) separates *packer efficiency* (what the CLI
+  prints) from *end-to-end token saving* (what you actually pay), reports
+  both measured, and says plainly which target is not yet met.
 - 🧩 **Kind-agnostic core.** Every source normalizes to one `MemoryNode`
   shape, so a shell command and a git commit rank on a level field.
 - 🧠 **Hybrid retrieval (BM25 + vector search).** `sqlite-vec` embeddings via
@@ -163,23 +164,64 @@ with `*`, so `init` never edits a file in a repo it does not own.
 
 ## Benchmarks
 
-The project's target is **>70% lower token spend** than sending raw history,
-at real repo scale. Here is the honest, currently-measured picture, not a
-projection:
+Two different numbers get called "token savings," and conflating them is how a
+tool like this ends up overclaiming. NexusMem reports them separately, and
+they are not interchangeable.
 
-| Scenario (23-commit fixture repo) | Result |
+**Packer efficiency** — what `nexusmem query` prints on every run. It compares
+the packed context the agent receives against the summed raw bodies of *the
+same candidate set the packer was handed*. It measures one component —
+ranking plus budgeted packing — against its own input, which is exactly what
+makes it useful for tuning. It is **not** a claim about your session's token
+bill: without NexusMem those candidate bodies would never have entered the
+context window at all, so the baseline it divides by is hypothetical.
+
+**End-to-end token saving** — the packed context against *what would otherwise
+have gone into the context window* to answer the same question: reading the
+files, pasting history, letting the agent grep around. This is what the
+project's **>70%** target refers to. It is the harder number to measure
+honestly, because the baseline depends on what the agent would have done
+instead.
+
+### Packer efficiency
+
+| Scenario | Result |
 | --- | --- |
-| Tight budget, 3 matches, 1 dropped entirely | **25% saved** |
-| Generous budget, 6 matches, all kept | **~15% *more*** (fixed per-node formatting overhead outweighs the little there was to trim) |
+| 23-commit fixture repo, tight budget, 3 matches, 1 dropped entirely | **25%** |
+| 23-commit fixture repo, generous budget, 6 matches, all kept | **−15%** — packed output is *larger*; fixed per-node formatting overhead outweighs the little there was to trim |
+| This repo, 515 nodes, two real design questions (2026-08-09) | **81%** and **84%** |
 
 The mechanism is structural, not compression: packing a single small node
-barely shrinks it — the summary is already close to the raw body. The real
-saving is that once a query has more relevant candidates than the token
-budget allows, the low-score ones are **left out entirely**. At real repo
-scale — hundreds of commits, a handful actually relevant to any one
-question — the win is dropping the hundreds, not shaving the handful. The
-23-commit fixture above is too small to demonstrate that regime; a proper
-benchmark against a real, large repository is on the roadmap.
+barely shrinks it — the summary is already close to the raw body. The
+efficiency comes from leaving low-score candidates out entirely once there are
+more of them than the budget allows, which is why it climbs with corpus size
+and goes negative on a tiny one.
+
+### End-to-end token saving
+
+| Measurement | Result |
+| --- | --- |
+| The same two design questions above, answered from memory instead of reading `README.md` + `docs/phase-2-spec.md` in full (~32k chars ≈ 8–9k tokens) | **~40%** — roughly 5k tokens spent, including one failed MCP call and a re-run |
+
+Hand-tallied from one real session on 2026-08-09, not instrumented; treat it
+as an order-of-magnitude figure, not a precise one.
+
+Note the gap. The same two queries that reported **81–84% packer efficiency**
+delivered roughly **40% end-to-end saving**. Both numbers are real and both
+were measured; they answer different questions. Quoting the first as if it
+were the second is the specific overclaim this section exists to prevent.
+
+**The >70% end-to-end target is not met at this scale.** The 23-commit fixture
+and this 515-node repo are both too small to demonstrate the regime the target
+describes — hundreds of commits with a handful relevant to any one question,
+where the win is dropping the hundreds rather than shaving the handful. A
+proper benchmark against a large repository is still on the roadmap.
+
+One caveat in NexusMem's favour, which is not a percentage at all: the 130
+conversation turns and 315 shell commands in this repo's memory have no cheap
+`grep` equivalent. Without a collector recording them they are simply gone,
+not merely more expensive to retrieve. That value is "reachable or not,"
+which no savings figure captures.
 
 ## Layout
 
@@ -313,9 +355,9 @@ below, an honest report of where it stands after actually building it.
 
 ### Phase 2, honestly
 
-All three pieces shipped and are exercised by real tests (153 passing,
-including live `sqlite-vec` KNN queries and a real MCP stdio JSON-RPC round
-trip). The acceptance test this phase was built against
+All three pieces shipped and are exercised by real tests (165 passing,
+including live `sqlite-vec` KNN queries and an MCP client/server round trip
+over the SDK's own transport). The acceptance test this phase was built against
 (`nexusmem query "why floors on ranking factor score"` should surface the
 real rationale from `src/retrieval/rank.ts`) **failed on the first real run**
 and now passes, after two more real bugs were found by checking the actual

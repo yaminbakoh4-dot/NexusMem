@@ -33,16 +33,23 @@ export async function runQuery(opts: QueryOptions): Promise<number> {
 
     const matched = hits.length;
 
-    // What it would have cost to hand the agent every match, unranked and
-    // unpacked -- the number the packing step is actually saving against.
+    // Packer efficiency: the packed context against the summed raw bodies of
+    // *the same candidate set*. It measures ranking + budgeted packing
+    // against its own input, which is what makes it useful for tuning.
+    //
+    // Deliberately NOT called "token saved": the baseline is hypothetical --
+    // without NexusMem you'd never have sent these candidate bodies at all,
+    // so this says nothing about a session's actual token bill. End-to-end
+    // saving is measured against what the agent would otherwise have read,
+    // and is a separate number entirely (README § Benchmarks).
     //
     // Can go negative: for a handful of small matches, fixed per-node
-    // formatting overhead can outweigh what little there was to trim. Real
-    // savings come from two places -- dropping low-score matches entirely
-    // once candidates exceed the budget, and truncating large bodies -- and
+    // formatting overhead can outweigh what little there was to trim. The
+    // efficiency comes from dropping low-score matches entirely once
+    // candidates exceed the budget, and from truncating large bodies --
     // neither has much to work with on a tiny, already-terse result set.
     const rawTokens = hits.reduce((n, h) => n + approxTokens(h.body), 0);
-    const savedPct = rawTokens > 0 ? 1 - packed.tokensUsed / rawTokens : 0;
+    const packerEfficiency = rawTokens > 0 ? 1 - packed.tokensUsed / rawTokens : 0;
 
     if (opts.json) {
       process.stdout.write(
@@ -75,7 +82,7 @@ export async function runQuery(opts: QueryOptions): Promise<number> {
         `${pc.dim('tokens ')} ${packed.tokensUsed}/${packed.tokensBudget}` +
           (packed.droppedForBudget ? pc.dim(`  (${packed.droppedForBudget} dropped for budget)`) : ''),
         rawTokens > 0
-          ? `${pc.dim('vs raw ')} ${rawTokens} tokens if all matches were sent unpacked  ${savedPct >= 0 ? pc.green(`(${(savedPct * 100).toFixed(0)}% saved)`) : pc.yellow(`(${(-savedPct * 100).toFixed(0)}% more -- overhead dominates on small result sets)`)}`
+          ? `${pc.dim('vs raw ')} ${rawTokens} tokens if these same matches were sent unpacked  ${packerEfficiency >= 0 ? pc.green(`(${(packerEfficiency * 100).toFixed(0)}% packer efficiency)`) : pc.yellow(`(${(-packerEfficiency * 100).toFixed(0)}% larger -- overhead dominates on small result sets)`)}`
           : '',
         '',
       ]
