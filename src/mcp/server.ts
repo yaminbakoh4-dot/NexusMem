@@ -26,9 +26,14 @@ export function createServer(): McpServer {
     },
     async ({ projectRoot, query, budget }) => {
       const result = await searchMemory({ projectRoot, query, budget });
+      // The packed context block goes in BOTH fields: clients differ on which
+      // one they surface to the model, and a client that prefers
+      // structuredContent would otherwise see only the match stats -- the
+      // block itself (the tool's entire value) silently dropped.
       return {
         content: [{ type: 'text', text: result.text }],
         structuredContent: {
+          text: result.text,
           matched: result.matched,
           bm25Matched: result.bm25Matched,
           vectorMatched: result.vectorMatched,

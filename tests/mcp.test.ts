@@ -2,7 +2,10 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { createServer } from '../src/mcp/server.js';
 import { getStatus, searchMemory, syncProject } from '../src/mcp/tools.js';
 import { MemoryStore } from '../src/store/store.js';
 import { makeProjectId } from '../src/core/project.js';
@@ -86,6 +89,59 @@ describe('mcp tools', () => {
       expect(statusB.byKind.git_commit).toBe(2); // initGitRepo's commit + the extra one above
     } finally {
       rmSync(otherDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('mcp server result shaping (protocol round trip)', () => {
+  let repoDir: string;
+
+  beforeEach(() => {
+    repoDir = mkdtempSync(join(tmpdir(), 'nexusmem-mcp-proto-'));
+    initGitRepo(repoDir);
+  });
+
+  afterEach(() => {
+    rmSync(repoDir, { recursive: true, force: true });
+  });
+
+  /**
+   * Regression test for a live failure (2026-08-09): search_memory's packed
+   * context block lived only in content[0].text, while structuredContent
+   * carried just the match stats. An MCP client that surfaces
+   * structuredContent in preference to content (Claude Code does) showed the
+   * model `{matched: 38, ...}` and silently dropped the block -- the tool's
+   * entire value. The block must therefore be present in BOTH fields.
+   */
+  it('search_memory exposes the context block in content AND structuredContent', async () => {
+    await syncProject({ projectRoot: repoDir, noEmbed: true });
+
+    const server = createServer();
+    const client = new Client({ name: 'test-client', version: '0.0.0' });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+
+    try {
+      const result = (await client.callTool({
+        name: 'search_memory',
+        arguments: { projectRoot: repoDir, query: 'retry timeout' },
+      })) as {
+        content: Array<{ type: string; text: string }>;
+        structuredContent?: Record<string, unknown>;
+        isError?: boolean;
+      };
+
+      expect(result.isError).toBeFalsy();
+
+      const contentText = result.content[0]?.text ?? '';
+      expect(contentText).toContain('retry timeout');
+
+      expect(result.structuredContent).toBeDefined();
+      expect(result.structuredContent?.text).toBe(contentText);
+      expect(result.structuredContent?.matched).toBeGreaterThan(0);
+    } finally {
+      await client.close();
+      await server.close();
     }
   });
 });
