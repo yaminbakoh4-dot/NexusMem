@@ -16,7 +16,7 @@ export async function runScanDocs(opts: ScanDocsOptions): Promise<number> {
   const repo = await readRepoInfo(opts.cwd);
   const projectId = makeProjectId({ root: repo.root, originUrl: repo.originUrl });
 
-  const files = await readDocFiles(repo.root);
+  const { files, unreadable } = await readDocFiles(repo.root);
 
   if (!opts.json) {
     process.stderr.write(
@@ -24,6 +24,9 @@ export async function runScanDocs(opts: ScanDocsOptions): Promise<number> {
         ? `${pc.dim('tracked .md files')} ${files.map((f) => f.path).join(', ')}\n\n`
         : `${pc.yellow('no tracked .md files found')}\n`,
     );
+    if (unreadable.length > 0) {
+      process.stderr.write(`${pc.yellow('unreadable')} ${unreadable.join(', ')}\n\n`);
+    }
   }
 
   const nodes = collectDocFiles(files, projectId).filter((n) => n.signal >= opts.minSignal);

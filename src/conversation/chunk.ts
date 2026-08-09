@@ -39,6 +39,14 @@ function sectionStart(paragraph: string): string | null {
 
 export function chunkAssistantText(text: string, maxChars: number): AssistantChunk[] {
   const paragraphs = text
+    // Normalize first: every rule below is written against `\n`, and a CRLF
+    // file defeats all of them at once. `\r\n\r\n` holds no two *consecutive*
+    // `\n`, so the paragraph split silently returns the whole document as one
+    // paragraph, headings are never detected, and the file degrades into a few
+    // coarse size-based chunks. Docs are read straight off a Windows working
+    // tree where git checks files out as CRLF, so this is the normal case
+    // there, not an edge one -- it cut this repo's README from 37 sections to 8.
+    .replace(/\r\n?/g, '\n')
     .split(/\n{2,}/)
     .map((p) => p.trim())
     .filter(Boolean);

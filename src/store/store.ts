@@ -228,6 +228,60 @@ export class MemoryStore {
     return info.changes;
   }
 
+  /**
+   * Delete the nodes of one source that its latest full scan did not produce.
+   *
+   * Needed by any source whose node ids are derived from content that can be
+   * *edited in place* rather than only appended to. A `doc_section` id comes
+   * from `path + heading slug`, so renaming a markdown heading mints a new node
+   * and strands the old one: `sync` reports `+1 new`, and the corpus then holds
+   * two contradictory versions of the same section, both of which come back for
+   * the same query. Git and shell nodes describe events that already happened
+   * and are never restated, so they have nothing to prune.
+   *
+   * Scoping is the whole safety story here, and it is deliberately narrow:
+   *
+   * - `project_id` -- never reaches another repository's memory.
+   * - `source` -- an exact match on the collector's own key, so pruning `docs`
+   *   cannot touch `conversation:claude-code`, `shell:pwsh` or `git` nodes even
+   *   though they share the table.
+   * - `keepIds` -- everything this scan produced.
+   * - `keepPaths` -- files the scan could not read. Their nodes are kept
+   *   because an unreadable file is not evidence that its sections are gone.
+   *
+   * Callers must pass the ids from a *complete* scan of the source. A partial
+   * or filtered scan would read as "these nodes no longer exist" and delete
+   * real history.
+   */
+  pruneSourceNodes(
+    projectId: string,
+    source: string,
+    keepIds: readonly string[],
+    opts: { keepPaths?: readonly string[] } = {},
+  ): number {
+    // json_each keeps this one statement regardless of how many sections a
+    // repo has, instead of an id list that grows into SQLite's parameter cap.
+    const scope = `project_id = @projectId AND source = @source
+        AND id NOT IN (SELECT value FROM json_each(@keepIds))
+        AND id NOT IN (SELECT node_id FROM node_files WHERE path IN (SELECT value FROM json_each(@keepPaths)))`;
+
+    const params = {
+      projectId,
+      source,
+      keepIds: JSON.stringify(keepIds),
+      keepPaths: JSON.stringify(opts.keepPaths ?? []),
+    };
+
+    return this.db.transaction(() => {
+      // Same ordering constraint as clearProject: nodes_vec is not reachable by
+      // FK or trigger, so its rows must go while their rowids still resolve.
+      // nodes_fts *is* trigger-backed (schema.ts) and cleans itself up on
+      // DELETE, and node_files cascades.
+      this.db.prepare(`DELETE FROM nodes_vec WHERE rowid IN (SELECT rowid FROM nodes WHERE ${scope})`).run(params);
+      return this.db.prepare(`DELETE FROM nodes WHERE ${scope}`).run(params).changes;
+    })();
+  }
+
   /** Nodes for this project that have no embedding yet (new, or invalidated by a content change). */
   findNodesNeedingEmbedding(projectId: string, limit = 200): EmbeddableNode[] {
     return this.db

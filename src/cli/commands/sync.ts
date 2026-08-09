@@ -213,20 +213,38 @@ async function syncDocs(
     return { totals, seen: 0 };
   }
 
-  const files = await readDocFiles(repoRoot, { include: config.sources.docs.include });
-  if (files.length === 0) {
-    log(`${pc.dim('docs')} no tracked .md files found`);
-    return { totals, seen: 0 };
-  }
+  const { files, unreadable } = await readDocFiles(repoRoot, { include: config.sources.docs.include });
 
   const nodes = collectDocFiles(files, projectId, { maxBodyChars: config.limits.maxBodyChars });
   if (nodes.length > 0) addStats(totals, store.upsertNodes(nodes));
+
+  // Prune *after* the upsert, so a renamed heading's replacement is already in
+  // place and only the stranded original is left to remove.
+  //
+  // This scan is always a complete one -- every tracked .md file, re-read in
+  // full -- which is what makes the delete safe: anything of this source not in
+  // `nodes` genuinely no longer exists in the repository. An empty scan is a
+  // legitimate outcome (every .md file deleted) and prunes accordingly; files
+  // that could not be read are excluded rather than treated as gone.
+  const pruned = store.pruneSourceNodes(
+    projectId,
+    DOCS_SOURCE,
+    nodes.map((node) => node.id),
+    { keepPaths: unreadable },
+  );
 
   // Re-read in full each sync, the same trade the conversation source makes:
   // content-addressed ids make it idempotent, and a doc file has no cheap
   // append-only cursor to walk incrementally.
   store.setSyncCursor(projectId, DOCS_SOURCE, `scanned:${nodes.length}`);
-  log(`  ${pc.dim(`${DOCS_SOURCE}: ${nodes.length} section(s) from ${files.length} file(s)`)}`);
+
+  if (files.length === 0 && unreadable.length === 0) {
+    log(`${pc.dim('docs')} no tracked .md files found`);
+  } else {
+    const prunedPart = pruned > 0 ? `, ${pc.yellow(`${pruned} stale removed`)}` : '';
+    const skippedPart = unreadable.length > 0 ? `, ${unreadable.length} unreadable (kept)` : '';
+    log(`  ${pc.dim(`${DOCS_SOURCE}: ${nodes.length} section(s) from ${files.length} file(s)`)}${prunedPart}${pc.dim(skippedPart)}`);
+  }
 
   return { totals, seen: nodes.length };
 }

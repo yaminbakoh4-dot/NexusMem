@@ -32,11 +32,26 @@ export async function listDocFiles(repoRoot: string, opts: ListDocFilesOptions =
     .filter(Boolean);
 }
 
-export async function readDocFiles(repoRoot: string, opts: ListDocFilesOptions = {}): Promise<RawDocFile[]> {
+export interface DocScan {
+  files: RawDocFile[];
+  /**
+   * Tracked paths that could not be read this run.
+   *
+   * Reported rather than silently dropped because "produced no sections" and
+   * "was never looked at" mean opposite things to a caller that prunes: nodes
+   * from a file in here must be kept, or one unreadable file would wipe every
+   * section it had ever contributed.
+   */
+  unreadable: string[];
+}
+
+export async function readDocFiles(repoRoot: string, opts: ListDocFilesOptions = {}): Promise<DocScan> {
   const paths = await listDocFiles(repoRoot, opts);
   const files: RawDocFile[] = [];
+  const unreadable: string[] = [];
 
   for (const relPath of paths) {
+    const path = relPath.replace(/\\/g, '/');
     const absPath = join(repoRoot, relPath);
     let content: string;
     let mtime: Date;
@@ -45,11 +60,12 @@ export async function readDocFiles(repoRoot: string, opts: ListDocFilesOptions =
     } catch {
       // Tracked in git but missing on disk (deleted-but-not-staged, a
       // worktree quirk) -- skip rather than fail the whole sync over it.
+      unreadable.push(path);
       continue;
     }
 
-    files.push({ path: relPath.replace(/\\/g, '/'), content, ts: mtime.toISOString() });
+    files.push({ path, content, ts: mtime.toISOString() });
   }
 
-  return files;
+  return { files, unreadable };
 }
