@@ -117,11 +117,21 @@ there is one, falling back to the absolute path. Two clones of the same repo
 structural-importance score. Retrieval ranks by `relevance × signal`, which is
 what stops a `chore: bump deps` from eating the budget a `fix:` deserves.
 
-**Score = relevance × signal × recency, each floored, never zeroed.** Each
-factor lives in `[floor, 1]`, not `[0, 1]` — multiplying three `[0,1]` terms
-lets any one of them crush the other two to nothing, so a perfectly relevant
-five-year-old commit would lose outright to a barely-relevant one from this
-morning. Floors turn each factor into a *reordering* instead of a gate.
+**Score = relevance × signal^a × recency^b, each factor floored, never zeroed.**
+Each factor lives in `[floor, 1]`, not `[0, 1]` — multiplying three `[0,1]`
+terms lets any one of them crush the other two to nothing, so a perfectly
+relevant five-year-old commit would lose outright to a barely-relevant one from
+this morning. Floors turn each factor into a *reordering* instead of a gate.
+
+The exponents exist because floors alone still let the priors win. `relevance`
+is the only factor derived from the query; `signal` and `recency` are priors
+that hold before any query is asked. As equal multiplicands they could overturn
+relevance outright — dogfooding caught a `fix:` commit taking rank 1 from the
+best-matching README section on a 44% signal edge against a 15% relevance
+deficit. Each prior is now raised to the power that caps its *entire* range at
+overturning a 2× relevance gap (`span^exponent = 2`), which leaves the priors
+ordering equally-relevant hits exactly as before while stopping them from
+outvoting a decisive relevance win.
 
 **Keyword search first, vector search additive, not a replacement.** Phase 1
 shipped SQLite FTS5/BM25 alone -- developer queries are keyword-heavy (file

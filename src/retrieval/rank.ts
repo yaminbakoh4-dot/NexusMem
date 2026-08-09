@@ -8,7 +8,12 @@ export interface RankedHit extends SearchHit {
   /** 0..1, decays with age but never below the floor. */
   recencyFactor: number;
   ageDays: number;
-  /** relevance * signalWeight * recencyFactor. Sort key, best first. */
+  /**
+   * `relevance * signalWeight**SIGNAL_EXPONENT * recencyFactor**RECENCY_EXPONENT`.
+   * Sort key, best first. The reported `signalWeight`/`recencyFactor` are the
+   * raw factors, not the exponentiated ones, so they stay readable as "how
+   * important" and "how fresh" independent of how much weight ranking gives them.
+   */
   score: number;
 }
 
@@ -40,6 +45,28 @@ const SIGNAL_FLOOR = 0.2;
 const RECENCY_FLOOR = 0.3;
 const DEFAULT_HALF_LIFE_DAYS = 30;
 const MS_PER_DAY = 86_400_000;
+
+/**
+ * How far a *prior* may overturn the *query*.
+ *
+ * `relevance` is the only factor derived from what was asked; `signal` and
+ * `recency` are query-independent priors that hold before any query exists.
+ * Multiplying all three as equals let the priors win outright: signal spans
+ * 5x (0.2 -> 1) and recency 3.33x (0.3 -> 1), while relevance spans 6.7x, so a
+ * well-scored recent commit could outrank a document that matched the question
+ * far better. Observed on a real query: a `fix:` commit (signal .9) took rank 1
+ * from the top-fused doc section (signal .55) on a 44% signal edge against a
+ * 15% relevance deficit.
+ *
+ * Exponents bound that instead of banning it. Each prior is raised to the power
+ * that makes its *entire* range worth at most a `MAX_PRIOR_OVERTURN`-fold
+ * relevance gap -- solving `span^exponent = MAX_PRIOR_OVERTURN`. Priors still
+ * order equally-relevant hits exactly as before (the transform is monotonic);
+ * they simply can no longer overturn a large relevance gap.
+ */
+const MAX_PRIOR_OVERTURN = 2;
+const SIGNAL_EXPONENT = Math.log(MAX_PRIOR_OVERTURN) / Math.log(1 / SIGNAL_FLOOR);
+const RECENCY_EXPONENT = Math.log(MAX_PRIOR_OVERTURN) / Math.log(1 / RECENCY_FLOOR);
 
 /**
  * bm25() in SQLite is a *cost*: smaller (more negative) is a better match.
@@ -104,7 +131,9 @@ export function rankHits(hits: readonly SearchHit[], opts: RankOptions = {}): Ra
     const ageDays = ageDaysOf(hit.ts, now);
     const recencyFactor = RECENCY_FLOOR + (1 - RECENCY_FLOOR) * 2 ** (-ageDays / halfLife);
 
-    return { ...hit, relevance, signalWeight, ageDays, recencyFactor, score: relevance * signalWeight * recencyFactor };
+    const score = relevance * signalWeight ** SIGNAL_EXPONENT * recencyFactor ** RECENCY_EXPONENT;
+
+    return { ...hit, relevance, signalWeight, ageDays, recencyFactor, score };
   });
 
   return ranked.sort((a, b) => b.score - a.score);

@@ -66,6 +66,67 @@ describe('rankHits', () => {
   });
 });
 
+/**
+ * The priors (signal, recency) are bounded relative to relevance: across their
+ * whole range they may overturn at most a 2x relevance gap. These pin that
+ * boundary from both sides, so a future weight change cannot quietly move it.
+ *
+ * `relevanceScores` is used rather than bm25 `rank` because it is the only way
+ * to place a hit at a *chosen* relevance: both paths min-max rescale into
+ * [0.15, 1], so with two hits the gap is always maximal. The third hit anchors
+ * the bottom of that rescale.
+ */
+describe('rankHits — prior vs relevance balance', () => {
+  const AT_NOW = NOW.toISOString();
+
+  /** Build hits whose post-normalization relevance lands on `targets`. */
+  function withRelevance(targets: Array<{ id: string; relevance: number; signal: number }>) {
+    const scores = new Map<string, number>();
+    for (const t of targets) scores.set(t.id, (t.relevance - 0.15) / 0.85);
+    scores.set('_anchor', 0); // pins min so the rescale is the identity above
+
+    const hits = [
+      ...targets.map((t) => hit({ id: t.id, signal: t.signal, ts: AT_NOW })),
+      hit({ id: '_anchor', signal: 0.5, ts: AT_NOW }),
+    ];
+    return rankHits(hits, { now: NOW, relevanceScores: scores });
+  }
+
+  it('lets max signal overturn a relevance gap below 2x', () => {
+    const ranked = withRelevance([
+      { id: 'relevant', relevance: 1.0, signal: 0 }, // signalWeight 0.2 (worst)
+      { id: 'important', relevance: 0.6, signal: 1 }, // signalWeight 1.0 (best), gap 1.67x
+    ]);
+    expect(ranked[0]!.id).toBe('important');
+  });
+
+  it('does not let max signal overturn a relevance gap above 2x', () => {
+    const ranked = withRelevance([
+      { id: 'relevant', relevance: 1.0, signal: 0 },
+      { id: 'important', relevance: 0.4, signal: 1 }, // gap 2.5x
+    ]);
+    expect(ranked[0]!.id).toBe('relevant');
+  });
+
+  it('keeps the top-matching doc above a higher-signal commit (the dogfooded regression)', () => {
+    // Reproduces the observed production pair: a `fix:` commit (signal .9) beat
+    // the top-fused README section (signal .55) on signal alone, despite a 15%
+    // relevance deficit and identical recency.
+    const ranked = withRelevance([
+      { id: 'doc', relevance: 1.0, signal: 0.55 },
+      { id: 'commit', relevance: 0.847, signal: 0.9 },
+    ]);
+    expect(ranked[0]!.id).toBe('doc');
+  });
+
+  it('still reports the raw, un-exponentiated factors for display', () => {
+    const ranked = withRelevance([{ id: 'a', relevance: 1.0, signal: 0.5 }]);
+    const a = ranked.find((r) => r.id === 'a')!;
+    expect(a.signalWeight).toBeCloseTo(0.6, 5); // 0.2 + 0.8 * 0.5
+    expect(a.score).toBeLessThan(a.relevance); // but scoring discounted it
+  });
+});
+
 function ranked(overrides: Partial<RankedHit> & Pick<RankedHit, 'id'>): RankedHit {
   const base = hit(overrides);
   return { ...base, relevance: 1, signalWeight: 1, recencyFactor: 1, ageDays: 0, score: 1, ...overrides };
