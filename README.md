@@ -323,6 +323,11 @@ output elsewhere.
 
 There is no CI configured yet.
 
+## Development Note
+This project was initially prototyped and built using **Claude Code** to test the viability of local context memory engines for AI agents. 
+
+While the codebase was generated through AI-assisted workflows, the architecture, system design, and product specifications were directed by human requirements. Contributions, code audits, and refactoring from the community are extremely welcome!
+
 ---
 
 ## License
