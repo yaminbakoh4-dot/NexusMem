@@ -1,8 +1,16 @@
 {
   "name": "nexusmem",
   "version": "0.1.0",
-  "description": "Local-first persistent memory engine (an SSD for AI coding agents). Captures git, shell and diff history into an embedded DB and serves back only the context that matters.",
+  "description": "Local-first persistent memory for AI coding agents. Indexes git history, shell commands with exit codes, project docs and (opt-in) assistant transcripts into an embedded SQLite database, then serves back a ranked, token-budgeted context slice over MCP or the CLI.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yaminbakoh4-dot/NexusMem.git"
+  },
+  "homepage": "https://github.com/yaminbakoh4-dot/NexusMem#readme",
+  "bugs": {
+    "url": "https://github.com/yaminbakoh4-dot/NexusMem/issues"
+  },
   "type": "module",
   "engines": {
     "node": ">=22"
@@ -19,7 +27,8 @@
     "build": "tsup",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
