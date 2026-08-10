@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+# Only the newest run for a ref can still matter; cancel the ones it superseded.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ matrix.os }} · node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+
+    strategy:
+      # Windows is a first-class target here, not an afterthought: the shell
+      # collector is PSReadLine-first and the git spawn/crash retries exist for
+      # faults only Windows produces. A red Linux job must not cancel the
+      # Windows one before it has reported.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        # The lower bound is the exact floor package.json claims, so the claim
+        # is tested rather than asserted.
+        node: ['20.11', '22']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      # `npm ci` over `npm install`: fails loudly if the lockfile and
+      # package.json ever drift, instead of quietly resolving something else.
+      # better-sqlite3 and sqlite-vec are native; the lockfile carries every
+      # platform's optional binary, so no per-OS special casing is needed.
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      # The published package is `dist/`, and `bin` points into it. Building
+      # here means a broken build is caught on the commit that caused it
+      # rather than at publish time.
+      - run: npm run build
+
+      - run: npm test
