@@ -90,6 +90,53 @@ describe('mcp tools', () => {
       rmSync(otherDir, { recursive: true, force: true });
     }
   });
+
+  /**
+   * `stdout` is not a free-for-all log here -- it is the MCP transport itself.
+   *
+   * `StdioServerTransport` stores the *stream object*
+   * (`server/stdio.js:11  this._stdout = _stdout`, defaulting to
+   * `process.stdout`) and resolves `.write` at call time
+   * (`server/stdio.js:72  this._stdout.write(json)`). So anything that
+   * reassigns `process.stdout.write` also reassigns the transport's outbound
+   * path: a JSON-RPC response sent while a sync is in flight is swallowed by
+   * the capture buffer, and the SDK sees the patched `return true` as proof it
+   * was delivered. Two overlapping syncs additionally leave the restore
+   * chain broken, because the second one saves the first one's patch as
+   * "the original".
+   *
+   * Capturing the summary is a legitimate need; taking it from a shared global
+   * is not. The invariant is that the tool layer routes output explicitly.
+   */
+  it('never reassigns process.stdout.write, because stdout is the MCP transport', async () => {
+    const descriptor = Object.getOwnPropertyDescriptor(process.stdout, 'write');
+    let current = process.stdout.write;
+    let assignments = 0;
+
+    Object.defineProperty(process.stdout, 'write', {
+      configurable: true,
+      get: () => current,
+      // Record, then apply, so today's behavior is unchanged and the test
+      // observes rather than breaks it.
+      set: (fn) => {
+        assignments += 1;
+        current = fn;
+      },
+    });
+
+    let summary: string;
+    try {
+      summary = (await syncProject({ projectRoot: repoDir, noEmbed: true })).summary;
+    } finally {
+      if (descriptor) Object.defineProperty(process.stdout, 'write', descriptor);
+      else Reflect.deleteProperty(process.stdout, 'write');
+    }
+
+    expect(assignments).toBe(0);
+    // The capture must keep working -- the point is to change where it reads
+    // from, not to give up reporting the sync summary.
+    expect(summary).toContain('synced');
+  });
 });
 
 describe('mcp server result shaping (protocol round trip)', () => {
@@ -138,6 +185,39 @@ describe('mcp server result shaping (protocol round trip)', () => {
       expect(result.structuredContent).toBeDefined();
       expect(result.structuredContent?.text).toBe(contentText);
       expect(result.structuredContent?.matched).toBeGreaterThan(0);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  /**
+   * Tool descriptions enumerate the sources NexusMem indexes, and that list is
+   * the only thing a model reads when deciding whether this tool can answer a
+   * question. It had already gone stale: the docs collector shipped in
+   * `ce658c6` and is on by default, but both descriptions still advertised
+   * only git, shell and conversation -- so a question about project prose
+   * looked out of scope for a tool that could in fact answer it.
+   *
+   * Prose drifts silently in a way code does not, hence this guard.
+   */
+  it('advertises every source the sync pipeline actually ingests', async () => {
+    const server = createServer();
+    const client = new Client({ name: 'test-client', version: '0.0.0' });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+
+    try {
+      const { tools } = await client.listTools();
+      const describing = (name: string) => tools.find((t) => t.name === name)?.description ?? '';
+
+      for (const name of ['search_memory', 'sync_project']) {
+        const description = describing(name).toLowerCase();
+        expect(description, `${name} has no description`).not.toBe('');
+        for (const source of ['git', 'shell', 'docs', 'conversation']) {
+          expect(description, `${name} does not mention the ${source} source`).toContain(source);
+        }
+      }
     } finally {
       await client.close();
       await server.close();

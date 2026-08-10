@@ -1,7 +1,7 @@
 # NexusMem
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-informational)](LICENSE)
-![Node](https://img.shields.io/badge/node-%3E%3D20.11-brightgreen)
+![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen)
 
 A local-first persistent memory engine for AI coding agents (Claude Code, Cursor, MCP-based agents).
 
@@ -82,7 +82,9 @@ embedding dropped for re-embedding.
 
 ### Prerequisites
 
-- Node.js ≥ 20.11
+- Node.js ≥ 22 — `better-sqlite3` publishes no prebuilt binary below this, so Node 20 would
+  have to compile the native addon from source (and on Windows that means a full Visual Studio
+  C++ toolchain). Node 20 also reached end of life in April 2026.
 - Git
 - Local Ollama instance with an embedding model (optional, for vector search)
 

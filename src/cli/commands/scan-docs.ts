@@ -5,6 +5,7 @@ import { approxTokens } from '../../core/text.js';
 import type { MemoryNode } from '../../core/types.js';
 import { readDocFiles } from '../../docs/read.js';
 import { readRepoInfo } from '../../git/repo.js';
+import { DOCS_SIGNAL_BANDS, formatSignal } from '../format.js';
 
 export interface ScanDocsOptions {
   cwd: string;
@@ -46,13 +47,6 @@ export async function runScanDocs(opts: ScanDocsOptions): Promise<number> {
   return 0;
 }
 
-function signalColor(signal: number): string {
-  const s = signal.toFixed(2);
-  if (signal >= 0.55) return pc.green(s);
-  if (signal >= 0.35) return pc.yellow(s);
-  return pc.dim(s);
-}
-
 function formatNode(node: MemoryNode): string {
-  return [signalColor(node.signal), node.title].join(' ');
+  return [formatSignal(node.signal, DOCS_SIGNAL_BANDS), node.title].join(' ');
 }

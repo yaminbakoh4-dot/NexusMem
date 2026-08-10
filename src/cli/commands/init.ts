@@ -21,9 +21,19 @@ export interface InitOptions {
   hook: boolean;
   /** Persist `sources.conversation.enabled = true` in config.json. */
   enableConversation: boolean;
+  /**
+   * Where the result summary goes. Defaults to real stdout for the CLI.
+   *
+   * Callers that are not a terminal pass their own sink. The MCP server is
+   * the reason this exists rather than a capture wrapper: there, `stdout` is
+   * the JSON-RPC transport, so borrowing it for human-readable output is not
+   * a formatting choice but a protocol hazard.
+   */
+  out?: (chunk: string) => void;
 }
 
 export async function runInit(opts: InitOptions): Promise<number> {
+  const out = opts.out ?? ((chunk: string) => void process.stdout.write(chunk));
   const repo = await readRepoInfo(opts.cwd);
   const ws = resolveWorkspace(repo.root);
   const projectId = makeProjectId({ root: repo.root, originUrl: repo.originUrl });
@@ -86,7 +96,7 @@ export async function runInit(opts: InitOptions): Promise<number> {
   }
 
   lines.push('', `Next: ${pc.bold('nexusmem sync')}`, '');
-  process.stdout.write(lines.join('\n'));
+  out(lines.join('\n'));
 
   return 0;
 }

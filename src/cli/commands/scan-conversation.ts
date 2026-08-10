@@ -6,6 +6,7 @@ import { makeProjectId } from '../../core/project.js';
 import { approxTokens } from '../../core/text.js';
 import type { MemoryNode } from '../../core/types.js';
 import { readRepoInfo } from '../../git/repo.js';
+import { CONVERSATION_SIGNAL_BANDS, formatSignal } from '../format.js';
 
 export interface ScanConversationOptions {
   cwd: string;
@@ -48,13 +49,6 @@ export async function runScanConversation(opts: ScanConversationOptions): Promis
   return 0;
 }
 
-function signalColor(signal: number): string {
-  const s = signal.toFixed(2);
-  if (signal >= 0.55) return pc.green(s);
-  if (signal >= 0.35) return pc.yellow(s);
-  return pc.dim(s);
-}
-
 function formatNode(node: MemoryNode): string {
-  return [signalColor(node.signal), node.ts.slice(0, 16).replace('T', ' '), node.title].join(' ');
+  return [formatSignal(node.signal, CONVERSATION_SIGNAL_BANDS), node.ts.slice(0, 16).replace('T', ' '), node.title].join(' ');
 }

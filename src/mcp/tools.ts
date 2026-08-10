@@ -72,10 +72,19 @@ export interface SyncProjectOutput {
 }
 
 /**
- * Captures `runInit`/`runSync`'s stdout (they write directly to
- * `process.stdout`, which is fine for a CLI but not for a tool result)
- * rather than refactoring them to return structured data -- the smallest
- * change that keeps one implementation instead of two.
+ * Collects `runInit`/`runSync`'s summary through an explicit sink rather than
+ * by reassigning `process.stdout.write`, which is what this used to do.
+ *
+ * That mattered more than it looked: under the stdio transport, `stdout` *is*
+ * the JSON-RPC channel. `StdioServerTransport` holds the stream object and
+ * resolves `.write` at send time, so a patched `write` also intercepts
+ * protocol traffic -- a response emitted while a sync was running would land
+ * in the capture buffer, and the patch's unconditional `return true` would
+ * report it as delivered. Overlapping syncs compounded it: the second call
+ * saved the first call's patch as "the original" and restored that instead.
+ *
+ * Passing a sink keeps the single shared implementation (the reason for the
+ * original trade) without borrowing a global that something else owns.
  *
  * Always runs `init` first: an MCP client has no reason to know this tool
  * needs a separate init step, and `runInit` is already a safe no-op (just a
@@ -83,26 +92,21 @@ export interface SyncProjectOutput {
  */
 export async function syncProject(input: SyncProjectInput): Promise<SyncProjectOutput> {
   const chunks: string[] = [];
-  const originalWrite = process.stdout.write.bind(process.stdout);
-  process.stdout.write = ((chunk: string | Uint8Array) => {
-    chunks.push(chunk.toString());
-    return true;
-  }) as typeof process.stdout.write;
+  const out = (chunk: string) => {
+    chunks.push(chunk);
+  };
 
-  try {
-    await runInit({ cwd: input.projectRoot, force: false, hook: false, enableConversation: false });
+  await runInit({ cwd: input.projectRoot, force: false, hook: false, enableConversation: false, out });
 
-    const opts: SyncOptions = {
-      cwd: input.projectRoot,
-      full: false,
-      rebuild: false,
-      quiet: true,
-      noEmbed: input.noEmbed,
-    };
-    await runSync(opts);
-  } finally {
-    process.stdout.write = originalWrite;
-  }
+  const opts: SyncOptions = {
+    cwd: input.projectRoot,
+    full: false,
+    rebuild: false,
+    quiet: true,
+    noEmbed: input.noEmbed,
+    out,
+  };
+  await runSync(opts);
 
   return { summary: chunks.join('').trim() };
 }

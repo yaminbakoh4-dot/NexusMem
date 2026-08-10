@@ -38,6 +38,59 @@ export class GitSpawnError extends Error {
 }
 
 /**
+ * `git` started, then died without reaching an exit of its own -- a segfault
+ * or an access violation, not a verdict.
+ *
+ * Distinct from `GitError` for the same reason `GitSpawnError` is: a
+ * `GitError` carries git's opinion about the repository and must be shown to
+ * the user as such, while this means git never formed one. Reported as a
+ * `GitError` it reads as "git rev-parse exited with code 3221225477", which
+ * sends the reader looking for a git problem that does not exist.
+ */
+export class GitCrashError extends Error {
+  constructor(
+    message: string,
+    readonly args: string[],
+    /** `0xC0000005` on Windows, or the POSIX signal name. */
+    readonly status: string,
+    readonly exitCode: number,
+    readonly signal: NodeJS.Signals | null,
+  ) {
+    super(message);
+    this.name = 'GitCrashError';
+  }
+}
+
+/**
+ * A Windows process torn down by an unhandled exception exits with its
+ * NTSTATUS value, and every failure NTSTATUS sits at or above this bound.
+ * git's own exit codes are small (1, 2, 128, 129), so the boundary separates
+ * "the OS killed git" from "git ran and disagreed" without guesswork.
+ *
+ * Observed here as 0xC0000005 (STATUS_ACCESS_VIOLATION) from `git init` and
+ * `git commit` in test fixtures, at roughly two runs in five on this machine.
+ */
+const NTSTATUS_FAILURE_BASE = 0xc0000000;
+
+/**
+ * Ctrl+C arrives as an NTSTATUS too, and is the one that must not be retried:
+ * it is the user's instruction to stop, not a fault.
+ */
+const STATUS_CONTROL_C_EXIT = 0xc000013a;
+
+/** POSIX counterpart -- the process died on a signal instead of returning a code. */
+const FATAL_SIGNALS = new Set<string>(['SIGSEGV', 'SIGBUS', 'SIGABRT', 'SIGILL', 'SIGFPE']);
+
+/** A short label for how git died, or `null` if it exited normally (however unhappily). */
+function crashStatus(code: number, signal: NodeJS.Signals | null): string | null {
+  if (signal) return FATAL_SIGNALS.has(signal) ? signal : null;
+  if (code >= NTSTATUS_FAILURE_BASE && code !== STATUS_CONTROL_C_EXIT) {
+    return `0x${code.toString(16).toUpperCase()}`;
+  }
+  return null;
+}
+
+/**
  * Spawn failures that are worth retrying rather than reporting as a broken
  * setup.
  *
@@ -104,15 +157,25 @@ export interface GitExecOptions {
 }
 
 /**
- * Stream `git <args>` stdout as UTF-8 chunks, retrying a transient failure to
- * start the process.
+ * Stream `git <args>` stdout as UTF-8 chunks, retrying the two failures that
+ * are the environment's fault rather than git's: a transient failure to start
+ * (`GitSpawnError`), and git being killed mid-run (`GitCrashError`).
  *
- * Retrying is safe here only because a spawn failure happens strictly before
- * any output exists: once `git` is running, every remaining failure mode is an
- * exit code (`GitError`), which is git's own answer and must not be retried.
- * The `produced` guard enforces that boundary rather than assuming it -- once a
- * single chunk has reached the consumer, re-running the command would duplicate
- * output into a parser mid-parse, so at that point the error propagates.
+ * A non-zero exit is never retried. That is git's own answer, and running the
+ * same command again will get the same one.
+ *
+ * The two retryable cases differ in where they can strike. A spawn failure is
+ * necessarily before any output exists; a crash can happen part-way through a
+ * long `git log`. The `produced` guard is what makes retrying safe in both:
+ * once a single chunk has reached the consumer, re-running would replay output
+ * into a parser that has already consumed it, so from that point the error
+ * propagates instead.
+ *
+ * Retrying is also safe at the command level here because every git invocation
+ * in this codebase reads (`log`, `rev-parse`, `merge-base`, `ls-files`,
+ * `remote get-url`). Nothing writes, so a half-finished attempt leaves no lock
+ * file or partial state for the next one to trip over. A future write command
+ * would need that reasoning revisited.
  */
 export async function* gitStream(cwd: string, args: string[], opts: GitExecOptions = {}): AsyncGenerator<string> {
   const sleep = opts.sleep ?? realSleep;
@@ -126,7 +189,7 @@ export async function* gitStream(cwd: string, args: string[], opts: GitExecOptio
       }
       return;
     } catch (err) {
-      const retryable = err instanceof GitSpawnError && err.transient;
+      const retryable = (err instanceof GitSpawnError && err.transient) || err instanceof GitCrashError;
       if (produced || !retryable || attempt >= RETRY_DELAYS_MS.length) throw err;
       await sleep(RETRY_DELAYS_MS[attempt]!);
     }
@@ -146,9 +209,9 @@ async function* runGitOnce(cwd: string, args: string[], opts: GitExecOptions): A
     if (stderr.length < 64 * 1024) stderr += chunk;
   });
 
-  const exited = new Promise<number>((resolve, reject) => {
+  const exited = new Promise<{ code: number; signal: NodeJS.Signals | null }>((resolve, reject) => {
     child.once('error', (err) => reject(toSpawnError(err, cwd, fullArgs)));
-    child.once('close', (code) => resolve(code ?? 0));
+    child.once('close', (code, signal) => resolve({ code: code ?? 0, signal: signal ?? null }));
   });
   // A spawn failure rejects `exited` before the stdout loop below has a
   // consumer for it; without this the rejection is unhandled for a tick even
@@ -164,7 +227,20 @@ async function* runGitOnce(cwd: string, args: string[], opts: GitExecOptions): A
     if (child.exitCode === null) child.kill();
   }
 
-  const code = await exited;
+  const { code, signal } = await exited;
+
+  const crash = crashStatus(code, signal);
+  if (crash) {
+    throw new GitCrashError(
+      `git ${args.join(' ')} was killed before it could answer (${crash}) in ${cwd}.` +
+        ' This is an environment fault, not a problem with the repository.',
+      fullArgs,
+      crash,
+      code,
+      signal,
+    );
+  }
+
   if (code !== 0) {
     const trimmed = stderr.trim();
     // Lead with git's own first line: now that callers no longer rewrite every

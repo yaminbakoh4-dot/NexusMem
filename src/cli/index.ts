@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import pc from 'picocolors';
 import { ConfigError } from '../config/workspace.js';
-import { GitSpawnError } from '../git/exec.js';
+import { GitCrashError, GitSpawnError } from '../git/exec.js';
 import { NotAGitRepositoryError } from '../git/repo.js';
 import { ProfileNotFoundError } from '../hooks/install.js';
 import { runHookInstall, runHookRemove, runHookStatus } from './commands/hook.js';
@@ -22,6 +22,9 @@ function isExpected(err: unknown): err is Error {
     // "git isn't installed" and "the spawn failed, try again" are both things
     // the user fixes, not stack traces they debug.
     err instanceof GitSpawnError ||
+    // Survived every retry, so git is genuinely unstable on this machine
+    // (antivirus, a bad install). Actionable, and not our stack to print.
+    err instanceof GitCrashError ||
     err instanceof ConfigError ||
     err instanceof ProfileNotFoundError
   );

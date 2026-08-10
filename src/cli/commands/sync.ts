@@ -28,6 +28,14 @@ export interface SyncOptions {
   /** Skip the embedding pass entirely -- useful when Ollama isn't running and you don't want to wait out its timeout. */
   noEmbed?: boolean;
   quiet: boolean;
+  /**
+   * Where the final summary goes. Defaults to real stdout for the CLI.
+   *
+   * Progress lines keep going to stderr regardless (see `log` below); this is
+   * only the result. The MCP server passes its own sink because there `stdout`
+   * carries the JSON-RPC transport -- see `InitOptions.out`.
+   */
+  out?: (chunk: string) => void;
 }
 
 /**
@@ -254,6 +262,7 @@ export async function runSync(opts: SyncOptions): Promise<number> {
   const log = (line: string) => {
     if (!opts.quiet) process.stderr.write(`${line}\n`);
   };
+  const out = opts.out ?? ((chunk: string) => void process.stdout.write(chunk));
 
   const store = MemoryStore.open(ws.dbPath);
   const started = Date.now();
@@ -296,7 +305,7 @@ export async function runSync(opts: SyncOptions): Promise<number> {
     const conversationPart = conversationEnabled ? `, ${conversation.seen} conversation exchange(s)` : '';
     const docsPart = config.sources.docs.enabled ? `, ${docs.seen} doc section(s)` : '';
 
-    process.stdout.write(
+    out(
       [
         `${pc.green('synced')} ${git.seen} commit(s), ${shell.seen} shell entr${shell.seen === 1 ? 'y' : 'ies'}${conversationPart}${docsPart} in ${elapsed}s`,
         `  ${pc.green(`+${totals.inserted} new`)}  ${pc.yellow(`~${totals.updated} updated`)}  ${pc.dim(`=${totals.unchanged} unchanged`)}`,

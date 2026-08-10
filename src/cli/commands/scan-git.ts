@@ -1,8 +1,10 @@
 import pc from 'picocolors';
 import { collectGitCommits } from '../../collectors/git-commits.js';
 import { makeProjectId } from '../../core/project.js';
+import { approxTokens } from '../../core/text.js';
 import type { MemoryNode } from '../../core/types.js';
 import { readRepoInfo } from '../../git/repo.js';
+import { formatSignal, GIT_SIGNAL_BANDS } from '../format.js';
 
 export interface ScanGitOptions {
   cwd: string;
@@ -51,20 +53,13 @@ export async function runScanGit(opts: ScanGitOptions): Promise<number> {
   return 0;
 }
 
-function signalColor(signal: number): string {
-  const s = signal.toFixed(2);
-  if (signal >= 0.7) return pc.green(s);
-  if (signal >= 0.45) return pc.yellow(s);
-  return pc.dim(s);
-}
-
 function formatNode(node: MemoryNode): string {
   const sha = String(node.meta.shortSha ?? '').padEnd(9);
   const date = node.ts.slice(0, 10);
   const files = Number(node.meta.filesChanged ?? 0);
   const churn = `+${node.meta.insertions ?? 0}/-${node.meta.deletions ?? 0}`;
   return [
-    signalColor(node.signal),
+    formatSignal(node.signal, GIT_SIGNAL_BANDS),
     pc.dim(date),
     pc.magenta(sha),
     node.title,
@@ -72,12 +67,15 @@ function formatNode(node: MemoryNode): string {
   ].join(' ');
 }
 
-function summarize(nodes: MemoryNode[]): string {
+/** Exported for tests: the token total it reports must match every other scan command's. */
+export function summarize(nodes: MemoryNode[]): string {
   if (nodes.length === 0) return pc.yellow('no commits matched');
 
   const timestamps = nodes.map((n) => n.ts).sort();
   const avgSignal = nodes.reduce((n, x) => n + x.signal, 0) / nodes.length;
-  const approxTokens = Math.round(nodes.reduce((n, x) => n + x.body.length, 0) / 4);
+  // The shared helper, not a local re-derivation: every scan command prints
+  // this same "tokens if sent raw" figure, so they must all count it alike.
+  const totalTokens = nodes.reduce((n, x) => n + approxTokens(x.body), 0);
 
   const fileHits = new Map<string, number>();
   for (const node of nodes) {
@@ -90,7 +88,7 @@ function summarize(nodes: MemoryNode[]): string {
 
   return [
     `${pc.bold(String(nodes.length))} nodes  ${pc.dim(`${timestamps[0]?.slice(0, 10)} .. ${timestamps.at(-1)?.slice(0, 10)}`)}`,
-    `  avg signal ${avgSignal.toFixed(3)}   ~${approxTokens.toLocaleString()} tokens if sent raw`,
+    `  avg signal ${avgSignal.toFixed(3)}   ~${totalTokens.toLocaleString()} tokens if sent raw`,
     hottest.length ? `  hottest files:\n${hottest.join('\n')}` : '',
   ]
     .filter(Boolean)

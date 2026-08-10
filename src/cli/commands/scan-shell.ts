@@ -5,6 +5,7 @@ import { approxTokens } from '../../core/text.js';
 import type { MemoryNode } from '../../core/types.js';
 import { readRepoInfo } from '../../git/repo.js';
 import { collectAvailableShellHistory } from '../../shell/detect.js';
+import { formatSignal, SHELL_SIGNAL_BANDS } from '../format.js';
 
 export interface ScanShellOptions {
   cwd: string;
@@ -50,18 +51,14 @@ export async function runScanShell(opts: ScanShellOptions): Promise<number> {
   return 0;
 }
 
-function signalColor(signal: number): string {
-  const s = signal.toFixed(2);
-  if (signal >= 0.6) return pc.red(s);
-  if (signal >= 0.4) return pc.yellow(s);
-  return pc.dim(s);
-}
-
 function formatNode(node: MemoryNode): string {
   const approx = node.meta.tsApprox ? pc.dim('~') : ' ';
   const exit = node.meta.exitCode;
+  // Red is reserved for the failure itself. The signal column grades
+  // importance, not danger, and reads green-for-high like every other
+  // `scan-*` command -- see cli/format.ts.
   const exitLabel = typeof exit === 'number' && exit !== 0 ? pc.red(`exit ${exit}`) : '';
-  return [signalColor(node.signal), approx + node.ts.slice(0, 16).replace('T', ' '), node.title, exitLabel]
+  return [formatSignal(node.signal, SHELL_SIGNAL_BANDS), approx + node.ts.slice(0, 16).replace('T', ' '), node.title, exitLabel]
     .filter(Boolean)
     .join(' ');
 }
