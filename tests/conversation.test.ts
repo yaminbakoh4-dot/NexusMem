@@ -147,6 +147,33 @@ describe('redact', () => {
     expect(result.text).not.toContain('ghp_abcdefghijklmnopqrstuvwxyz012345');
   });
 
+  /**
+   * Every rule except `key-value-secret` has no capture group, so
+   * `String.replace`'s callback receives `(match, offset, string)` rather than
+   * `(match, group)`. A non-zero offset is truthy, which is enough to take the
+   * "keep the key name" branch and splice the match position into the corpus.
+   *
+   * The assertions below are positive on purpose: the existing tests only
+   * assert the secret is *absent*, which stays true no matter what junk
+   * replaces it, and is why this survived a green suite.
+   */
+  it('replaces a groupless match with exactly [redacted], at any offset', () => {
+    expect(redact('AKIAIOSFODNN7EXAMPLE').text).toBe('[redacted]');
+    expect(redact('use AKIAIOSFODNN7EXAMPLE please').text).toBe('use [redacted] please');
+    expect(redact('creds are ghp_abcdefghijklmnopqrstuvwxyz0123456789').text).toBe('creds are [redacted]');
+  });
+
+  it('never leaks a match offset into the redacted text', () => {
+    const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dBjftJeZ4CVPmB92K27uhbUJU1p1r_wW1gFWFOEjXk';
+    const result = redact(`here is my token: ${jwt}`);
+    expect(result.text).toBe('here is my token: [redacted]');
+    expect(result.text).not.toMatch(/\d+: \[redacted\]/);
+  });
+
+  it('still keeps the key name for the one rule that really has a capture group', () => {
+    expect(redact('the apiKey = "abcdefgh12345678" ok').text).toBe('the apiKey: [redacted] ok');
+  });
+
   it('redacts key/value style secrets while keeping the key name legible', () => {
     const result = redact('apiKey: "sk-1234567890abcdef"');
     expect(result.text).toContain('apiKey: [redacted]');

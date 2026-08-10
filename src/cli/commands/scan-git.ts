@@ -72,7 +72,8 @@ function formatNode(node: MemoryNode): string {
   ].join(' ');
 }
 
-function summarize(nodes: MemoryNode[]): string {
+/** Exported for tests: the token total it reports must match every other scan command's. */
+export function summarize(nodes: MemoryNode[]): string {
   if (nodes.length === 0) return pc.yellow('no commits matched');
 
   const timestamps = nodes.map((n) => n.ts).sort();

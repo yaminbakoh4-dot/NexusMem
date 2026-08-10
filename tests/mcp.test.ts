@@ -90,6 +90,53 @@ describe('mcp tools', () => {
       rmSync(otherDir, { recursive: true, force: true });
     }
   });
+
+  /**
+   * `stdout` is not a free-for-all log here -- it is the MCP transport itself.
+   *
+   * `StdioServerTransport` stores the *stream object*
+   * (`server/stdio.js:11  this._stdout = _stdout`, defaulting to
+   * `process.stdout`) and resolves `.write` at call time
+   * (`server/stdio.js:72  this._stdout.write(json)`). So anything that
+   * reassigns `process.stdout.write` also reassigns the transport's outbound
+   * path: a JSON-RPC response sent while a sync is in flight is swallowed by
+   * the capture buffer, and the SDK sees the patched `return true` as proof it
+   * was delivered. Two overlapping syncs additionally leave the restore
+   * chain broken, because the second one saves the first one's patch as
+   * "the original".
+   *
+   * Capturing the summary is a legitimate need; taking it from a shared global
+   * is not. The invariant is that the tool layer routes output explicitly.
+   */
+  it('never reassigns process.stdout.write, because stdout is the MCP transport', async () => {
+    const descriptor = Object.getOwnPropertyDescriptor(process.stdout, 'write');
+    let current = process.stdout.write;
+    let assignments = 0;
+
+    Object.defineProperty(process.stdout, 'write', {
+      configurable: true,
+      get: () => current,
+      // Record, then apply, so today's behavior is unchanged and the test
+      // observes rather than breaks it.
+      set: (fn) => {
+        assignments += 1;
+        current = fn;
+      },
+    });
+
+    let summary: string;
+    try {
+      summary = (await syncProject({ projectRoot: repoDir, noEmbed: true })).summary;
+    } finally {
+      if (descriptor) Object.defineProperty(process.stdout, 'write', descriptor);
+      else Reflect.deleteProperty(process.stdout, 'write');
+    }
+
+    expect(assignments).toBe(0);
+    // The capture must keep working -- the point is to change where it reads
+    // from, not to give up reporting the sync summary.
+    expect(summary).toContain('synced');
+  });
 });
 
 describe('mcp server result shaping (protocol round trip)', () => {
