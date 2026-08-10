@@ -1,315 +1,217 @@
 # NexusMem
 
+[![npm](https://img.shields.io/npm/v/nexusmem)](https://www.npmjs.com/package/nexusmem)
 [![License: MIT](https://img.shields.io/badge/license-MIT-informational)](LICENSE)
 ![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen)
 
-A local-first persistent memory engine for AI coding agents (Claude Code, Cursor, MCP-based agents).
+Your coding agent can read `git log`. It cannot read the four things you tried last Tuesday that
+didn't work.
 
-AI coding assistants forget context once a session ends, and re-uploading the entire repository as
-context on every request is slow and expensive. NexusMem records local machine events — git history,
-shell commands, docs, and conversation transcripts — into an on-disk SQLite database, returning only
-the relevant context slice within a strict token budget.
+NexusMem records what actually happened on your machine (shell commands and their exit codes, git
+history, project docs, optionally your assistant transcripts) into a local SQLite database, and
+serves back a ranked, token-budgeted slice of it on demand. Everything stays on disk. No account, no
+cloud, no telemetry.
 
-All data remains local on your machine. No cloud dependencies, accounts, or telemetry.
+The shell history is the part worth caring about. Git tells an agent what shipped. Shell history
+tells it what was attempted, in what order, and which commands exited non-zero. That information
+exists nowhere else, and it disappears when your terminal scrollback rolls over.
 
----
-
-## Design Principles
-
-- **100% Local-First**: SQLite database stored in `.nexusmem/` inside your repository using
-  `sqlite-vec` and `FTS5`. Works fully offline.
-- **Kind-Agnostic Core**: Every source normalizes to a single `MemoryNode` schema, allowing git
-  commits, shell commands, and documentation to be scored and ranked on an equal basis.
-- **Hybrid Search (BM25 + Vector)**: Combines exact keyword matching via SQLite FTS5 (BM25) with
-  semantic vector search (`sqlite-vec` via a local Ollama model) using Reciprocal Rank Fusion (RRF).
-  RRF fuses on rank position only, never on raw scores, which is what makes it safe to combine a BM25
-  cost with a vector distance on an unrelated scale. Degrades gracefully to BM25-only if Ollama is
-  offline.
-- **Ranked, Budgeted Retrieval**: Scores candidates using
-  `score = relevance × signal^a × recency^b`, then packs nodes into a caller-specified token budget.
-  Each factor is floored into `[floor, 1]` rather than `[0, 1]`, so no single low factor can zero out
-  a strong match. The exponents `a` and `b` are derived, not tuned: `relevance` is the only
-  query-derived factor, so each query-independent prior is raised to the power that caps its entire
-  range at overturning a 2× relevance gap (`span^exponent = 2`, giving `a ≈ 0.431`, `b ≈ 0.576`).
-- **MCP Server Native**: Exposes `search_memory`, `sync_project`, and `get_status` as Model Context
-  Protocol (MCP) tools over stdio for Claude Desktop, Cursor, and Windsurf.
-
----
-
-## Architecture
-
-```
-git / shell / docs / transcripts
-              │
-              ▼   collectors/    normalize to one MemoryNode shape
-              │
-              ▼   store/         SQLite (FTS5 + sqlite-vec)
-              │
-              ▼   retrieval/     RRF fuse -> rank -> pack to token budget
-```
-
-### Key Subsystems
-
-1. **Git Collector**: Ingests commits, diff statistics, renames, and conventional commit signals
-   incrementally via stream iterators. Sync cursors are validated as ancestors of `HEAD` before being
-   trusted, so a rebase or amend widens the walk instead of silently skipping commits.
-2. **Shell Collector**: Scrapes default history files (`PSReadLine`, `.bash_history`,
-   `.zsh_history`). An optional PowerShell profile hook upgrades capture to include exact timestamps,
-   working directories, and exit codes (where failed commands receive a higher structural signal).
-3. **Docs Collector**: Indexes Markdown documentation (`.md` files) tracked by git. Line endings are
-   normalized to LF before chunking to prevent CRLF splitting failures on Windows. Scoped pruning
-   removes orphaned sections when headings are renamed or deleted, scoped by project and exact source
-   so it cannot affect git, shell, or conversation nodes.
-4. **Conversation Collector** (opt-in): Indexes AI assistant transcripts, redacting secrets before
-   writing to disk. Replies are chunked at heading and bold-lead boundaries rather than stored as
-   whole exchanges.
-
-### Storage Model
-
-Node ids are content-addressed (`sha256(projectId + kind + naturalKey)`), so running `sync` twice
-cannot produce duplicates and ingestion stays correct even if a cursor is lost. Project identity is
-derived from the normalized origin URL when one exists, falling back to the absolute path, so two
-clones of the same repository share one memory namespace.
-
-`nodes_fts` is trigger-populated and stays consistent automatically. `nodes_vec` is not — computing
-an embedding requires an async call to Ollama, which a synchronous SQL trigger cannot make — so it is
-filled by an explicit pass after `sync` writes nodes, and a node whose content changes has its stale
-embedding dropped for re-embedding.
-
----
-
-## Quickstart
-
-### Prerequisites
-
-- Node.js ≥ 22 — `better-sqlite3` publishes no prebuilt binary below this, so Node 20 would
-  have to compile the native addon from source (and on Windows that means a full Visual Studio
-  C++ toolchain). Node 20 also reached end of life in April 2026.
-- Git
-- Local Ollama instance with an embedding model (optional, for vector search)
-
-### Installation
+## Try it
 
 ```bash
-git clone https://github.com/yaminbakoh4-dot/NexusMem.git
-cd NexusMem
-npm install
-npm run build
-npm link
+npx nexusmem init && npx nexusmem sync
 ```
 
-`npm link` puts `nexusmem` on your `PATH`, so it runs against any repository on your machine.
+Then ask it something. Real output from this repository, top 2 of 5 hits:
 
-### Basic Usage
+```
+$ nexusmem query "windows spawn failure"
 
-Run from any git repository:
+Relevant history for: windows spawn failure
 
-```bash
-nexusmem init
-nexusmem sync
-nexusmem query "why does the retry logic exist"
+- 2026-08-09 fix: distinguish a failed git spawn from "not a git repository"
+  readRepoInfo collapsed three unrelated failures into one error: git running and reporting
+  the path is not a work tree, git not being installed, and the process failing to spawn at
+  all. Dogfooding hit the third case in two separate sessions...
+- 2026-08-09 README.md — Before a tagged release
+  - [ ] Retry on transient process-spawn failures on Windows
 ```
 
-### Optional: High-Precision Shell Hook
+A commit and a docs section, ranked against each other, inside whatever token budget you gave it.
+Nothing was summarized by a model on the way out; the ranker just decided what not to send.
 
-To capture exact working directory and exit status for shell history:
+For a sense of what actually accumulates, here is `nexusmem status` on this repo after two days:
 
-```bash
-nexusmem hook install
+```
+527 node(s)  2026-08-08 .. 2026-08-09
+       321  shell_command
+       130  conversation_turn
+        60  doc_section
+        16  git_commit
 ```
 
-This wraps your existing PowerShell prompt rather than replacing it, is idempotent, and is undone
-cleanly by `nexusmem hook remove`.
+Sixteen commits. Three hundred and twenty-one shell commands. The commits were already retrievable
+by any agent with a terminal. The rest was not.
 
----
+Requirements: Node 22 or newer, and git. Node 20 will not work, because `better-sqlite3` ships no
+prebuilt binary for it and Node 20 went end-of-life in April 2026. Ollama is optional and only
+affects semantic search (see below).
 
-## MCP Server Configuration
+## How retrieval works
 
-Add the following to your MCP client configuration file:
+Every source normalizes to the same `MemoryNode` shape, so a commit, a shell command and a docs
+section compete on equal terms. Retrieval runs BM25 over FTS5 and, if an embedding model is
+reachable, a vector search over `sqlite-vec`, then fuses the two with Reciprocal Rank Fusion.
+
+RRF fuses on rank *position* only, never on raw scores. That is the entire reason it is safe here: a
+BM25 cost and a vector distance live on unrelated, unbounded scales, and position is the only thing
+they agree on. No hand-tuned normalization constant sits between them.
+
+Ranking then multiplies three factors:
+
+```
+score = relevance × signal^0.431 × recency^0.576
+```
+
+`relevance` comes from the query. `signal` (a `fix:` commit outranks a `chore:`; a command that
+exited non-zero outranks one that succeeded) and `recency` are priors that hold before any query
+exists. Each factor is floored into `[floor, 1]` rather than `[0, 1]`, so one weak dimension cannot
+zero out a strong match.
+
+Those exponents are derived, not tuned. Priors kept overturning the query: on one real query a `fix:`
+commit took rank 1 from a better-matching docs section on a 44% signal edge against a 15% relevance
+deficit. So each prior is raised to the power that caps its entire range at overturning a 2× relevance
+gap, by solving `span^exponent = 2`. Priors still order equally-relevant hits exactly as before, since
+the transform is monotonic. They just cannot outvote the question anymore.
+
+Without Ollama, vector search is skipped and you get BM25 only. That path is fully supported, not a
+degraded error state; `sync` and `query` both succeed and simply do less.
+
+## Use it from an agent
 
 ```json
 {
   "mcpServers": {
     "nexusmem": {
-      "command": "nexusmem",
-      "args": ["mcp"]
+      "command": "npx",
+      "args": ["-y", "nexusmem", "mcp"]
     }
   }
 }
 ```
 
-Available tools:
+Three tools over stdio: `search_memory` returns the packed context block, `sync_project` ingests, and
+`get_status` reports what is currently remembered. Each takes an explicit `projectRoot`, because an
+MCP tool call carries no shell working directory. `sync_project` runs `init` for you if the
+repository has not been set up.
 
-| Tool | Description |
+## Optional: exact shell capture
+
+Scraped history files (PSReadLine, `.bash_history`, `.zsh_history`) give you command text and not
+much else. The hook gives you working directory, exit code and a real timestamp:
+
+```bash
+nexusmem hook install
+```
+
+It wraps your existing PowerShell prompt rather than replacing it, is idempotent, and
+`nexusmem hook remove` undoes it cleanly.
+
+Exit codes are what make this worth installing. A failed command is a stronger signal than a
+successful one, and without the hook there is no way to tell them apart.
+
+## What it costs you
+
+Two numbers get conflated in tools like this, so they are kept apart here.
+
+**Packer efficiency** is how much the ranker trims from its own candidate set. On this repository's
+corpus it runs 81–84%. It is useful for tuning the ranker and useless as a claim about your bill,
+because the baseline is hypothetical: without NexusMem those candidates were never going into your
+context window in the first place.
+
+**End-to-end saving** compares packed context against reading the equivalent files in full. Measured
+at **~40%** on design queries against this codebase, hand-tallied from one real session rather than
+instrumented. Treat it as an order of magnitude.
+
+The long-term target is >70%, and this repository cannot demonstrate it. That figure describes repos
+with thousands of commits, where the win comes from omitting hundreds of unrelated items rather than
+shaving a handful. A benchmark at that size is still outstanding, and until it exists the honest
+number is 40%.
+
+One thing that is not a percentage: shell commands and conversation turns have no cheap `grep`
+equivalent. Without something recording them, they are gone, not merely more expensive to find.
+
+Latency on a ~530-node corpus, warm, p50 over 10 runs:
+
+| Operation | |
 | --- | --- |
-| `search_memory` | Searches and ranks memory for a given prompt within a token budget. |
-| `sync_project` | Runs ingestion and updates embeddings for the specified repository root. |
-| `get_status` | Returns current ingestion counts and database state per source. |
+| BM25 retrieval (FTS5) | ~1.1 ms |
+| Vector KNN (`sqlite-vec`) | ~3.2 ms |
+| Fuse, rank, pack | ~0.6 ms |
+| Query embedding (local Ollama) | ~55–77 ms |
+| **End-to-end hybrid** | **~56 ms** |
 
-Each tool takes an explicit `projectRoot`, because MCP tool calls carry no implicit shell working
-directory. `sync_project` runs `init` first automatically if the repository has not been set up yet.
+All the SQLite work totals about 5 ms. The embedding call is the only thing on this path worth
+optimizing, and it is somebody else's process.
 
----
+## Where it breaks
 
-## Benchmarks & Evaluation
+- **Shell history without the hook is unscoped.** Scraped history has no directory context, so it is
+  attributed to whichever repository you ran `sync` from. Bounded to a tail window, and an
+  approximation rather than a guarantee.
+- **Thai, Japanese and Chinese depend on the vector pass.** FTS5's `unicode61` tokenizer splits on
+  whitespace, so languages without space boundaries get no useful BM25 recall.
+- **Rebasing strands nodes.** Rewritten history leaves nodes for unreachable commits. They describe
+  real events so they are not wrong, but a targeted prune does not exist yet. `sync --rebuild`
+  forces a clean re-scan.
+- **Multi-line PowerShell input is read as separate commands.** A function typed across several lines
+  at the prompt is not reconstructed.
+- **Scrape-fallback ids drift** if the history file is trimmed from the front between syncs.
+  Installing the hook fixes this.
+- **The embedding pass is capped per `sync`**, so a large corpus needs a few runs to embed fully.
+- **Conversation chunking is unevaluated.** Splitting long replies at heading boundaries measurably
+  helped, but it has never been tested systematically.
 
-NexusMem distinguishes between **packer efficiency** (internal packing performance against candidate
-sets) and **end-to-end token savings** (real-world savings on the context bill). The two are not
-interchangeable, and quoting the first as if it were the second is the specific overclaim this
-section exists to prevent.
+## Commands
 
-### Packer Efficiency
+`init`, `sync`, `query <text>`, `status`, `mcp`, and `hook install|remove|status`.
 
-Measures how effectively the ranking packer drops low-scoring candidate nodes relative to the raw
-candidate body sum within a strict token budget:
+There are also four dry-run previews (`scan-git`, `scan-shell`, `scan-docs`, `scan-conversation`)
+that write nothing and print the nodes ingestion *would* create along with their signal scores. That
+is the intended way to tune scoring against a real repository before committing to a change. Add
+`--json` to pipe them somewhere.
 
-| Scenario | Candidate Corpus | Result |
-| --- | --- | --- |
-| Fixture repo (tight budget, 3 matches, 1 dropped) | 23 commits | 25% |
-| Fixture repo (generous budget, 6 matches, all kept) | 23 commits | -15% (overhead exceeds trim) |
-| Core repo design evaluation | 515 nodes | 81% – 84% |
+Every command takes `-C <path>` to target another repository. On `sync`, `--conversation` opts the
+transcript source in for one run without persisting it, `--no-embed` skips the vector pass, and
+`--rebuild` drops the project's nodes and re-ingests from scratch.
 
-Efficiency is derived from excluding irrelevant low-scoring candidates entirely, not from text
-summarization. It increases with corpus size and goes negative on a tiny one, where fixed per-node
-formatting overhead outweighs the little there is to trim.
-
-The baseline it divides by is hypothetical: without NexusMem those candidate bodies would never have
-entered the context window at all. This figure is useful for tuning the ranker, not as a claim about
-a session's token bill.
-
-### End-to-End Token Savings
-
-Measures packed context size against reading the equivalent full source files into context.
-
-**Measured result: ~40%** on design queries evaluated against this codebase (reading `README.md` +
-`docs/phase-2-spec.md` in full, ~32k chars ≈ 8–9k tokens, versus retrieving relevant packed context).
-Hand-tallied from one real session, not instrumented — treat it as an order-of-magnitude figure.
-
-**The long-term >70% target is not met at this scale, and this repository cannot demonstrate it.**
-The target describes large repositories (thousands of commits) where the win comes from omitting
-hundreds of unrelated history items rather than shaving a handful. A benchmark against a repository
-of that size is still outstanding.
-
-One caveat in NexusMem's favour is not a percentage at all: the conversation turns and shell commands
-in memory have no cheap `grep` equivalent. Without a collector recording them they are gone, not
-merely more expensive to retrieve.
-
-### Search Latency
-
-Measured on this repository's corpus (~530 nodes), warm, p50 over 10 runs:
-
-| Operation | Latency |
-| --- | --- |
-| BM25-only retrieval pipeline (FTS5) | ~1.1 ms |
-| Vector search (`sqlite-vec` KNN) | ~3.2 ms |
-| RRF fuse + rank + pack | ~0.6 ms |
-| Query embedding (local Ollama call) | ~55–77 ms |
-| End-to-end hybrid retrieval | ~56 ms |
-
-All SQLite-side work totals roughly 5 ms. The end-to-end figure is dominated by the local embedding
-call, which is the only meaningful latency target on this path.
-
----
-
-## Command Reference
-
-| Command | Description |
-| --- | --- |
-| `nexusmem init` | Initializes `.nexusmem/` directory and SQLite schema. |
-| `nexusmem sync` | Ingests new events (git, shell, docs; `--conversation` for transcripts). |
-| `nexusmem status` | Prints memory counts per source and database status. |
-| `nexusmem query <text>` | Executes hybrid search, ranks, and packs context to stdout. |
-| `nexusmem scan-git` | Dry-run preview of git nodes and signal scores without writing to DB. |
-| `nexusmem scan-shell` | Dry-run preview of shell history nodes without writing to DB. |
-| `nexusmem scan-docs` | Dry-run preview of doc section nodes without writing to DB. |
-| `nexusmem scan-conversation` | Dry-run preview of conversation nodes without writing to DB. |
-| `nexusmem hook install` | Installs PowerShell profile wrapper for high-precision shell logs. |
-| `nexusmem hook remove` | Removes the PowerShell profile wrapper. |
-| `nexusmem hook status` | Reports whether the hook is installed. |
-| `nexusmem mcp` | Starts the MCP stdio server. |
-
-Every command accepts `-C, --cwd <path>` to target a repository other than the current directory.
-Useful `sync` flags: `--conversation` opts the conversation source in for one run without persisting
-it to config; `--no-embed` skips the vector-embedding pass; `--rebuild` drops the project's nodes and
-re-ingests from scratch.
-
----
-
-## On-Disk Layout
+## On disk
 
 ```
 <repo>/.nexusmem/
-  .gitignore     '*' — the workspace ignores itself, so init never edits a file it does not own
-  config.json    validated on read; a corrupt config fails loudly, never silently
-  memory.db      SQLite (WAL): nodes, node_files, nodes_fts, nodes_vec, sync_state
+  .gitignore     '*' — the workspace ignores itself, so init never edits a file it doesn't own
+  config.json    validated on read; a corrupt config fails loudly rather than silently
+  memory.db      SQLite in WAL mode
 ```
+
+Node ids are content-addressed from `sha256(projectId + kind + naturalKey)`, so running `sync` twice
+cannot produce duplicates and ingestion stays correct even if a cursor is lost. Project identity
+comes from the normalized origin URL when there is one, falling back to the absolute path, so two
+clones of the same repo share one memory namespace.
 
 Deleting `.nexusmem/` loses nothing that `sync` cannot rebuild.
 
----
+## Status
 
-## Technical Limitations & Edge Cases
+Ingestion, hybrid retrieval, budgeted packing and the MCP server all work and are covered by 210
+tests running on Linux and Windows across Node 22 and 24.
 
-- **Windows Line Endings**: Markdown files are normalized from CRLF to LF prior to chunking.
-  Un-normalized CRLF causes the paragraph splitter (`\n{2,}`) to never fire — `\r\n\r\n` contains no
-  two consecutive `\n` — collapsing an entire file into a few coarse, heading-less blocks.
-- **Git Rebase / Amend**: Rewriting git history leaves orphaned nodes for unreachable commits. These
-  are real events, so they are not wrong, but a targeted prune does not exist yet;
-  `sync --rebuild` forces a clean re-scan if required.
-- **Non-Segmented Languages**: FTS5 `unicode61` tokenization splits on whitespace. Languages without
-  space boundaries (Thai, Japanese, Chinese) rely on the vector search pass for recall.
-- **Unscoped Shell History**: Scraped shell history files without the PowerShell hook lack directory
-  context and are attributed to whichever repository `sync` was executed from. Bounded to the tail
-  window, and an approximation rather than a guarantee.
-- **PSReadLine Multi-Line Entries**: A function typed across several lines at the prompt is read as
-  separate single-line commands, not reconstructed.
-- **Scrape-Fallback Id Drift**: Position-based ids for the scrape fallbacks can drift if the
-  underlying history file is trimmed from the front between syncs. Installing the hook fixes this.
-- **Conversation Retrieval Precision**: Chunking replies at heading boundaries improved precision on
-  long replies but has not been evaluated systematically.
-- **Embedding Batch Size**: The embedding pass processes a bounded batch per `sync`; a large corpus
-  needs several runs to embed fully.
+Not done yet: diff bodies are not indexed (commits stop at metadata and diff stats), queries are
+scoped to a single project, there is no local-model summarization pass, and the conversation
+collector has never been audited for the stale-node bug that was found and fixed in the docs
+collector.
 
----
-
-## Roadmap
-
-Phases 1 and 2 are shipped. Phase 3 is in progress.
-
-### Phase 1 — Core ingestion and retrieval
-
-- [x] `init` / `sync` / `query` command surface
-- [x] Git collector (commits, diff stats, renames, conventional-commit signal)
-- [x] Shell collector (PSReadLine, bash, zsh) with optional PowerShell hook
-- [x] SQLite storage with FTS5/BM25
-- [x] Token-budgeted context packing
-
-### Phase 2 — Hybrid retrieval and MCP
-
-- [x] `sqlite-vec` embeddings via a local Ollama model
-- [x] Reciprocal Rank Fusion over BM25 + vector results
-- [x] MCP server (stdio): `search_memory`, `sync_project`, `get_status`
-- [x] Conversation collector (opt-in), chunked below whole-exchange granularity
-
-### Phase 3 — In progress
-
-- [x] Docs collector for tracked Markdown files
-- [x] Scoped pruning of orphaned doc sections on re-sync
-- [ ] Diff-level nodes (currently commit-level only)
-- [ ] Session summarization via a local SLM
-- [ ] Cross-project recall (queries are scoped to one project today)
-- [ ] Batch the embedding pass (capped at 200 nodes per `sync`)
-
-### Before a tagged release
-
-- [ ] CI
-- [ ] Retry on transient process-spawn failures on Windows
-- [ ] Benchmark against a large repository — the >70% end-to-end target is
-      unproven at this corpus size, where ~40% is what was measured
-
----
-
-## Development & Testing
+## Development
 
 ```bash
 npm install
@@ -318,19 +220,20 @@ npm test
 npm run build
 ```
 
-`scan-git`, `scan-shell`, `scan-docs` and `scan-conversation` write nothing — they print the
-`MemoryNode`s ingestion would create, with their signal scores, which is the intended way to tune
-scoring against a real repository before committing to a schema change. Add `--json` to pipe the
-output elsewhere.
+Tests are behavioral rather than snapshot-based, and several are regressions tied to specific
+observed failures. `tests/git-errors.test.ts` injects a fake `spawn` to exercise the Windows
+process-spawn faults, which cannot be provoked on demand.
 
-There is no CI configured yet.
+## On how this was built
 
-## Development Note
-This project was initially prototyped and built using **Claude Code** to test the viability of local context memory engines for AI agents. 
+This started as an experiment in whether a local context-memory engine for coding agents was viable,
+prototyped with Claude Code. The code was written through AI-assisted workflows; the architecture,
+the design decisions and the specifications were human-directed.
 
-While the codebase was generated through AI-assisted workflows, the architecture, system design, and product specifications were directed by human requirements. Contributions, code audits, and refactoring from the community are extremely welcome!
-
----
+That is worth stating plainly because it should change how you read the code, not whether you trust
+it. Audits, corrections and PRs are genuinely welcome, and the commit history is deliberately
+detailed about *why* things are the way they are, including the times an earlier assumption turned
+out to be wrong.
 
 ## License
 
