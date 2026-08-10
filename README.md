@@ -18,8 +18,11 @@ exists nowhere else, and it disappears when your terminal scrollback rolls over.
 
 ## Try it
 
-```bash
-npx nexusmem init && npx nexusmem sync
+From inside any git repository:
+
+```
+npx nexusmem init
+npx nexusmem sync
 ```
 
 Then ask it something. Real output from this repository, top 2 of 5 hits:
