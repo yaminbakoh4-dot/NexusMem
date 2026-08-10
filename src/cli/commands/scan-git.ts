@@ -1,6 +1,7 @@
 import pc from 'picocolors';
 import { collectGitCommits } from '../../collectors/git-commits.js';
 import { makeProjectId } from '../../core/project.js';
+import { approxTokens } from '../../core/text.js';
 import type { MemoryNode } from '../../core/types.js';
 import { readRepoInfo } from '../../git/repo.js';
 
@@ -78,7 +79,9 @@ export function summarize(nodes: MemoryNode[]): string {
 
   const timestamps = nodes.map((n) => n.ts).sort();
   const avgSignal = nodes.reduce((n, x) => n + x.signal, 0) / nodes.length;
-  const approxTokens = Math.round(nodes.reduce((n, x) => n + x.body.length, 0) / 4);
+  // The shared helper, not a local re-derivation: every scan command prints
+  // this same "tokens if sent raw" figure, so they must all count it alike.
+  const totalTokens = nodes.reduce((n, x) => n + approxTokens(x.body), 0);
 
   const fileHits = new Map<string, number>();
   for (const node of nodes) {
@@ -91,7 +94,7 @@ export function summarize(nodes: MemoryNode[]): string {
 
   return [
     `${pc.bold(String(nodes.length))} nodes  ${pc.dim(`${timestamps[0]?.slice(0, 10)} .. ${timestamps.at(-1)?.slice(0, 10)}`)}`,
-    `  avg signal ${avgSignal.toFixed(3)}   ~${approxTokens.toLocaleString()} tokens if sent raw`,
+    `  avg signal ${avgSignal.toFixed(3)}   ~${totalTokens.toLocaleString()} tokens if sent raw`,
     hottest.length ? `  hottest files:\n${hottest.join('\n')}` : '',
   ]
     .filter(Boolean)

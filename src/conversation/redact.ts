@@ -37,11 +37,16 @@ export function redact(text: string): RedactResult {
   let out = text;
 
   for (const rule of RULES) {
-    out = out.replace(rule.pattern, (match, group?: string) => {
+    out = out.replace(rule.pattern, (_match: string, ...rest: unknown[]) => {
       redactedCount += 1;
+      // `String.replace` passes (match, ...groups, offset, wholeString), so for
+      // a rule with no capture group `rest[0]` is the *offset* -- a number, and
+      // truthy at any position but the very first. Testing the type rather than
+      // truthiness is what keeps a match position out of the indexed corpus.
+      const key = typeof rest[0] === 'string' ? rest[0] : null;
       // Keep the key name for key/value matches so the redaction is legible
       // ("apiKey: [redacted]" reads better than a bare "[redacted]").
-      return group ? `${group}: [redacted]` : '[redacted]';
+      return key ? `${key}: [redacted]` : '[redacted]';
     });
   }
 
