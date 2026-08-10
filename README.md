@@ -53,6 +53,11 @@ For a sense of what actually accumulates, here is `nexusmem status` on this repo
 Sixteen commits. Three hundred and twenty-one shell commands. The commits were already retrievable
 by any agent with a terminal. The rest was not.
 
+That `conversation_turn` row only appears because this corpus was synced with `--conversation`.
+Assistant transcripts are the one source that is off by default and stays off until you opt in, since
+they are the likeliest place for a pasted credential to be sitting. A default install indexes git,
+shell and docs.
+
 Requirements: Node 22 or newer, and git. Node 20 will not work, because `better-sqlite3` ships no
 prebuilt binary for it and Node 20 went end-of-life in April 2026. Ollama is optional and only
 affects semantic search (see below).
