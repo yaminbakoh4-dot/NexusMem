@@ -16,7 +16,7 @@
     "node": ">=22"
   },
   "bin": {
-    "nexusmem": "./dist/cli/index.js"
+    "nexusmem": "dist/cli/index.js"
   },
   "files": [
     "dist",
