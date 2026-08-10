@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
+import { readOwnVersion } from '../core/version.js';
 import { getStatus, searchMemory, syncProject } from './tools.js';
 
 /**
@@ -10,7 +11,7 @@ import { getStatus, searchMemory, syncProject } from './tools.js';
  * access the process itself would use.
  */
 export function createServer(): McpServer {
-  const server = new McpServer({ name: 'nexusmem', version: '0.1.0' });
+  const server = new McpServer({ name: 'nexusmem', version: readOwnVersion() });
 
   server.registerTool(
     'search_memory',

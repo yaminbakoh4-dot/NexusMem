@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import pc from 'picocolors';
 import { ConfigError } from '../config/workspace.js';
+import { readOwnVersion } from '../core/version.js';
 import { GitCrashError, GitSpawnError } from '../git/exec.js';
 import { NotAGitRepositoryError } from '../git/repo.js';
 import { ProfileNotFoundError } from '../hooks/install.js';
@@ -51,7 +52,7 @@ const program = new Command();
 program
   .name('nexusmem')
   .description('NexusMem — local-first persistent memory for AI coding agents')
-  .version('0.1.0');
+  .version(readOwnVersion());
 
 program
   .command('init')
