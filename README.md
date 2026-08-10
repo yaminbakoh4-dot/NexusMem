@@ -176,6 +176,12 @@ optimizing, and it is somebody else's process.
 - **The embedding pass is capped per `sync`**, so a large corpus needs a few runs to embed fully.
 - **Conversation chunking is unevaluated.** Splitting long replies at heading boundaries measurably
   helped, but it has never been tested systematically.
+- **A burst of recent, high-signal commits crowds unrelated queries.** Each prior is individually
+  capped at overturning a 2× relevance gap, but the caps are per-prior, not joint, so a node that is
+  both very fresh and highly scored can overturn roughly 4×. Found by dogfooding: a query about the
+  PowerShell hook returned two same-day `fix:` commits with nothing to do with it at ranks 3 and 4,
+  while the section that actually answered the question sat at rank 6. Gets worse on days with a lot
+  of commits, which are exactly the days you have most to remember.
 
 ## Commands
 
