@@ -190,6 +190,39 @@ describe('mcp server result shaping (protocol round trip)', () => {
       await server.close();
     }
   });
+
+  /**
+   * Tool descriptions enumerate the sources NexusMem indexes, and that list is
+   * the only thing a model reads when deciding whether this tool can answer a
+   * question. It had already gone stale: the docs collector shipped in
+   * `ce658c6` and is on by default, but both descriptions still advertised
+   * only git, shell and conversation -- so a question about project prose
+   * looked out of scope for a tool that could in fact answer it.
+   *
+   * Prose drifts silently in a way code does not, hence this guard.
+   */
+  it('advertises every source the sync pipeline actually ingests', async () => {
+    const server = createServer();
+    const client = new Client({ name: 'test-client', version: '0.0.0' });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+
+    try {
+      const { tools } = await client.listTools();
+      const describing = (name: string) => tools.find((t) => t.name === name)?.description ?? '';
+
+      for (const name of ['search_memory', 'sync_project']) {
+        const description = describing(name).toLowerCase();
+        expect(description, `${name} has no description`).not.toBe('');
+        for (const source of ['git', 'shell', 'docs', 'conversation']) {
+          expect(description, `${name} does not mention the ${source} source`).toContain(source);
+        }
+      }
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
 });
 
 describe('vector coverage sanity via store (used by search_memory)', () => {

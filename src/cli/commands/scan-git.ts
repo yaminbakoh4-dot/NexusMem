@@ -4,6 +4,7 @@ import { makeProjectId } from '../../core/project.js';
 import { approxTokens } from '../../core/text.js';
 import type { MemoryNode } from '../../core/types.js';
 import { readRepoInfo } from '../../git/repo.js';
+import { formatSignal, GIT_SIGNAL_BANDS } from '../format.js';
 
 export interface ScanGitOptions {
   cwd: string;
@@ -52,20 +53,13 @@ export async function runScanGit(opts: ScanGitOptions): Promise<number> {
   return 0;
 }
 
-function signalColor(signal: number): string {
-  const s = signal.toFixed(2);
-  if (signal >= 0.7) return pc.green(s);
-  if (signal >= 0.45) return pc.yellow(s);
-  return pc.dim(s);
-}
-
 function formatNode(node: MemoryNode): string {
   const sha = String(node.meta.shortSha ?? '').padEnd(9);
   const date = node.ts.slice(0, 10);
   const files = Number(node.meta.filesChanged ?? 0);
   const churn = `+${node.meta.insertions ?? 0}/-${node.meta.deletions ?? 0}`;
   return [
-    signalColor(node.signal),
+    formatSignal(node.signal, GIT_SIGNAL_BANDS),
     pc.dim(date),
     pc.magenta(sha),
     node.title,

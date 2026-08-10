@@ -17,7 +17,7 @@ export function createServer(): McpServer {
     {
       title: 'Search remembered project history',
       description:
-        'Search a NexusMem-tracked repository\'s remembered git, shell and (if enabled) conversation history. Returns a token-budgeted, ranked context block -- not raw search results.',
+        'Search a NexusMem-tracked repository\'s remembered history: git commits, shell commands, tracked markdown docs, and (if enabled) conversation transcripts. Returns a token-budgeted, ranked context block -- not raw search results.',
       inputSchema: {
         projectRoot: z.string().describe('Absolute path to the repository root'),
         query: z.string().describe('Free-text question or search terms'),
@@ -48,7 +48,8 @@ export function createServer(): McpServer {
     'sync_project',
     {
       title: 'Sync remembered history',
-      description: 'Ingest new git/shell/conversation history for a NexusMem-tracked repository into its local database.',
+      description:
+        'Ingest new git, shell, docs and (if enabled) conversation history for a NexusMem-tracked repository into its local database.',
       inputSchema: {
         projectRoot: z.string().describe('Absolute path to the repository root'),
       },
