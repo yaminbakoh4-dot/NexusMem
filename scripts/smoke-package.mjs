@@ -232,11 +232,33 @@ function checkPublishManifest() {
       .filter((l) => /auto-corrected|npm warn publish/i.test(l))
       .join('\n')}`,
   );
-  // The tarball must carry the entry point `bin` points at.
+  // npm's own verdict on whether `bin` points at something that exists. It is
+  // only a warning, so it never fails a publish on its own.
   assert(
-    /dist[/\\]cli[/\\]index\.js/.test(result.output),
-    `the packed tarball does not contain dist/cli/index.js:\n${result.output}`,
+    !/No bin file found/i.test(result.output),
+    `npm cannot find the file bin points at, so the published package would install no working command:\n${result.output
+      .split('\n')
+      .filter((l) => /No bin file found/i.test(l))
+      .join('\n')}`,
   );
+
+  // Every bin target must appear in the file listing -- scoped to the listing
+  // itself, not the whole output.
+  //
+  // Scoping is the entire point. Matching the target against `result.output`
+  // instead passes on `npm warn package-json ... No bin file found at
+  // dist/cli/index.js`: an assertion meant to prove the entry point is present
+  // succeeds *because* npm reported it absent. That is not hypothetical -- it
+  // is what this check did until it was caught, and it made the audit run
+  // against a dist-less tarball on CI without anything going red.
+  const contents = result.output.split(/Tarball Contents/i)[1]?.split(/Tarball Details/i)[0] ?? '';
+  for (const [name, target] of Object.entries(bin)) {
+    const posix = target.replace(/\\/g, '/');
+    assert(
+      contents.split('\n').some((line) => line.includes(posix)),
+      `bin["${name}"] points at ${target}, which is not among the packed files:\n${contents}`,
+    );
+  }
 }
 
 async function main() {
@@ -249,11 +271,17 @@ async function main() {
   console.log(`workspace: ${workRoot}\n`);
 
   try {
-    console.log('publish manifest');
+    // Build first. `dist/` is gitignored, so on a fresh checkout it does not
+    // exist yet, and auditing the manifest before it does means auditing a
+    // tarball with no entry point in it -- which is exactly what happened on
+    // the first CI run of this script.
+    console.log('build');
+    runOk(npm, ['run', 'build'], { cwd: repoRoot, shell: isWindows });
+
+    console.log('\npublish manifest');
     check('npm does not rewrite the manifest it would publish', checkPublishManifest);
 
-    console.log('\nbuild and install');
-    runOk(npm, ['run', 'build'], { cwd: repoRoot, shell: isWindows });
+    console.log('\npack and install');
     const packed = runOk(npm, ['pack', '--silent', '--pack-destination', workRoot], {
       cwd: repoRoot,
       shell: isWindows,
