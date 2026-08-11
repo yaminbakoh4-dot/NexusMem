@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /**
  * Smoke test for the *packaged artifact*, not the source tree.
  *
@@ -23,6 +22,13 @@
  * installing a local tarball can NOT reproduce the 0.1.0 defect -- only
  * `npm publish --dry-run` reveals it, which is why checkPublishManifest()
  * exists as a separate step rather than an assertion on the install.
+ *
+ * TypeScript rather than plain JS, and inside `tsconfig.json`'s `include`, for
+ * the same reason `tsup.config.ts` is: this file is release machinery, and a
+ * mistake in it is invisible until a release goes wrong. The first version was
+ * .mjs and shipped a dead branch -- `run()` never returned `signal`, so the
+ * POSIX half of isCrash() could not fire -- which the typechecker reports as
+ * TS2339 the moment the file is checked at all.
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -30,46 +36,87 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+interface PackageJson {
+  name: string;
+  version: string;
+  bin?: string | Record<string, string>;
+}
+
+interface RunOptions {
+  cwd?: string;
+  shell?: boolean;
+}
+
+interface RunResult {
+  status: number | null;
+  /**
+   * Carried deliberately: a process killed by a signal reports status null and
+   * its cause only here, and that is the POSIX half of isCrash().
+   */
+  signal: NodeJS.Signals | null;
+  stdout: string;
+  stderr: string;
+  output: string;
+}
+
+interface InitializeResponse {
+  id?: unknown;
+  result?: { serverInfo?: { name?: string; version?: string } };
+}
+
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const pkg = JSON.parse(readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
+const pkg = JSON.parse(readFileSync(path.join(repoRoot, 'package.json'), 'utf8')) as PackageJson;
 const expectedVersion = pkg.version;
+const binTargets: Record<string, string> =
+  typeof pkg.bin === 'string' ? { [pkg.name]: pkg.bin } : (pkg.bin ?? {});
 const isWindows = process.platform === 'win32';
 const npm = isWindows ? 'npm.cmd' : 'npm';
 
-const results = [];
+const results: { name: string; ok: boolean }[] = [];
 
-function check(name, fn) {
+function check(name: string, fn: () => void): void {
   try {
     fn();
     results.push({ name, ok: true });
     console.log(`  ok    ${name}`);
   } catch (err) {
-    results.push({ name, ok: false, err });
+    results.push({ name, ok: false });
     console.log(`  FAIL  ${name}`);
     console.log(`        ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
-function assert(condition, message) {
+function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
+/** A command that ran and did not succeed. Carries what the OS reported. */
+class ProcessError extends Error {
+  readonly exitStatus: number | null;
+  readonly signal: NodeJS.Signals | null;
+
+  constructor(message: string, exitStatus: number | null, signal: NodeJS.Signals | null) {
+    super(message);
+    this.name = 'ProcessError';
+    this.exitStatus = exitStatus;
+    this.signal = signal;
+  }
+}
+
 /** Run to completion, capturing both streams. Never throws on a non-zero exit. */
-function run(command, args, opts = {}) {
+function run(command: string, args: string[], opts: RunOptions = {}): RunResult {
   const result = spawnSync(command, args, {
     encoding: 'utf8',
+    cwd: opts.cwd,
     // Windows resolves .cmd shims through the shell only. Every path handed to
     // a shelled-out command below is relative to `cwd` for that reason: a shell
     // command line is built by string concatenation, so an absolute temp path
     // would break the moment it contained a space.
     shell: opts.shell ?? false,
-    ...opts,
   });
   if (result.error) throw result.error;
   return {
     status: result.status,
-    // Carried deliberately: a process killed by a signal reports status null
-    // and its cause only here, and that is the POSIX half of isCrash().
     signal: result.signal,
     stdout: result.stdout ?? '',
     stderr: result.stderr ?? '',
@@ -77,13 +124,14 @@ function run(command, args, opts = {}) {
   };
 }
 
-function runOk(command, args, opts = {}) {
+function runOk(command: string, args: string[], opts: RunOptions = {}): RunResult {
   const result = run(command, args, opts);
   if (result.status !== 0) {
-    const err = new Error(`${command} ${args.join(' ')} exited ${result.status}\n${result.output}`);
-    err.exitStatus = result.status;
-    err.signal = result.signal;
-    throw err;
+    throw new ProcessError(
+      `${command} ${args.join(' ')} exited ${result.status}\n${result.output}`,
+      result.status,
+      result.signal,
+    );
   }
   return result;
 }
@@ -99,9 +147,10 @@ function runOk(command, args, opts = {}) {
 const NTSTATUS_FAILURE_FLOOR = 0xc0000000;
 const STATUS_CONTROL_C_EXIT = 0xc000013a;
 
-function isCrash(err) {
-  if (err?.signal) return true; // killed by a signal rather than exiting
-  const status = err?.exitStatus;
+function isCrash(err: unknown): err is ProcessError {
+  if (!(err instanceof ProcessError)) return false;
+  if (err.signal !== null) return true; // killed by a signal rather than exiting
+  const status = err.exitStatus;
   return typeof status === 'number' && status >= NTSTATUS_FAILURE_FLOOR && status !== STATUS_CONTROL_C_EXIT;
 }
 
@@ -113,13 +162,15 @@ function isCrash(err) {
  * such ambiguity -- safe only because this fixture is a throwaway the script
  * owns exclusively.
  */
-function withCrashRetry(label, attemptFn, attempts = 3) {
+function withCrashRetry<T>(label: string, attemptFn: () => T, attempts = 3): T {
   for (let attempt = 1; ; attempt += 1) {
     try {
       return attemptFn();
     } catch (err) {
       if (!isCrash(err) || attempt >= attempts) throw err;
-      console.log(`  note  ${label}: git was killed by the OS (${err.exitStatus}); retrying from scratch (${attempt}/${attempts - 1})`);
+      console.log(
+        `  note  ${label}: git was killed by the OS (${err.exitStatus ?? err.signal}); retrying from scratch (${attempt}/${attempts - 1})`,
+      );
     }
   }
 }
@@ -129,43 +180,51 @@ function withCrashRetry(label, attemptFn, attempts = 3) {
  * place an MCP client learns the server's version. Framing is newline-delimited
  * JSON-RPC, so no length prefix is involved.
  */
-function mcpInitialize(cliPath, cwd, timeoutMs = 60_000) {
-  return new Promise((resolve, reject) => {
+function mcpInitialize(cliPath: string, cwd: string, timeoutMs = 60_000): Promise<InitializeResponse> {
+  return new Promise<InitializeResponse>((resolve, reject) => {
     const child = spawn(process.execPath, [cliPath, 'mcp'], { cwd, stdio: ['pipe', 'pipe', 'pipe'] });
     let stdout = '';
     let stderr = '';
+
     const timer = setTimeout(() => {
       child.kill();
       reject(new Error(`no initialize response within ${timeoutMs}ms\nstdout: ${stdout}\nstderr: ${stderr}`));
     }, timeoutMs);
 
-    const finish = (fn, arg) => {
+    const settle = (action: () => void): void => {
       clearTimeout(timer);
       child.kill();
-      fn(arg);
+      action();
     };
 
-    child.stdout.on('data', (chunk) => {
-      stdout += chunk;
+    if (!child.stdout || !child.stderr || !child.stdin) {
+      settle(() => reject(new Error('the MCP server was spawned without stdio pipes')));
+      return;
+    }
+
+    child.stdout.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString();
       for (const line of stdout.split('\n')) {
         const trimmed = line.trim();
         if (!trimmed.startsWith('{')) continue;
-        let message;
+        let message: InitializeResponse;
         try {
-          message = JSON.parse(trimmed);
+          message = JSON.parse(trimmed) as InitializeResponse;
         } catch {
           continue; // a partial line; the next chunk completes it
         }
-        if (message.id === 1) finish(resolve, message);
+        if (message.id === 1) settle(() => resolve(message));
       }
     });
-    child.stderr.on('data', (chunk) => {
-      stderr += chunk;
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderr += chunk.toString();
     });
-    child.on('error', (err) => finish(reject, err));
+    child.on('error', (err: Error) => settle(() => reject(err)));
     child.on('exit', (code) => {
       if (stdout.includes('"id":1')) return;
-      finish(reject, new Error(`server exited (${code}) before answering\nstdout: ${stdout}\nstderr: ${stderr}`));
+      settle(() =>
+        reject(new Error(`server exited (${code}) before answering\nstdout: ${stdout}\nstderr: ${stderr}`)),
+      );
     });
 
     child.stdin.write(
@@ -190,11 +249,10 @@ function mcpInitialize(cliPath, cwd, timeoutMs = 60_000) {
  * build) from running a second time; nothing about manifest normalization
  * depends on it. Nothing is uploaded: `--dry-run` stops before the request.
  */
-function checkPublishManifest() {
+function checkPublishManifest(): void {
   // The precise defect, asserted structurally so it does not depend on npm's
   // wording: no bin path may start with `./`.
-  const bin = typeof pkg.bin === 'string' ? { [pkg.name]: pkg.bin } : (pkg.bin ?? {});
-  for (const [name, target] of Object.entries(bin)) {
+  for (const [name, target] of Object.entries(binTargets)) {
     assert(
       !target.startsWith('./') && !target.startsWith('.\\'),
       `bin["${name}"] is "${target}"; npm drops a bin path prefixed with ./ when it builds the registry manifest, publishing a package with no executable`,
@@ -220,26 +278,17 @@ function checkPublishManifest() {
   );
   assert(
     !/invalid and removed/i.test(result.output),
-    `npm removed something from the published manifest:\n${result.output
-      .split('\n')
-      .filter((l) => /invalid and removed|auto-corrected/i.test(l))
-      .join('\n')}`,
+    `npm removed something from the published manifest:\n${linesMatching(result.output, /invalid and removed|auto-corrected/i)}`,
   );
   assert(
     !/auto-corrected/i.test(result.output),
-    `npm auto-corrected package.json on publish, so the published manifest differs from this file:\n${result.output
-      .split('\n')
-      .filter((l) => /auto-corrected|npm warn publish/i.test(l))
-      .join('\n')}`,
+    `npm auto-corrected package.json on publish, so the published manifest differs from this file:\n${linesMatching(result.output, /auto-corrected|npm warn publish/i)}`,
   );
   // npm's own verdict on whether `bin` points at something that exists. It is
   // only a warning, so it never fails a publish on its own.
   assert(
     !/No bin file found/i.test(result.output),
-    `npm cannot find the file bin points at, so the published package would install no working command:\n${result.output
-      .split('\n')
-      .filter((l) => /No bin file found/i.test(l))
-      .join('\n')}`,
+    `npm cannot find the file bin points at, so the published package would install no working command:\n${linesMatching(result.output, /No bin file found/i)}`,
   );
 
   // Every bin target must appear in the file listing -- scoped to the listing
@@ -252,7 +301,7 @@ function checkPublishManifest() {
   // is what this check did until it was caught, and it made the audit run
   // against a dist-less tarball on CI without anything going red.
   const contents = result.output.split(/Tarball Contents/i)[1]?.split(/Tarball Details/i)[0] ?? '';
-  for (const [name, target] of Object.entries(bin)) {
+  for (const [name, target] of Object.entries(binTargets)) {
     const posix = target.replace(/\\/g, '/');
     assert(
       contents.split('\n').some((line) => line.includes(posix)),
@@ -261,7 +310,19 @@ function checkPublishManifest() {
   }
 }
 
-async function main() {
+function linesMatching(output: string, pattern: RegExp): string {
+  return output
+    .split('\n')
+    .filter((line) => pattern.test(line))
+    .join('\n');
+}
+
+function mkdirp(dir: string): string {
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+async function main(): Promise<void> {
   const workRoot = mkdtempSync(path.join(tmpdir(), 'nexusmem-smoke-'));
   const consumer = path.join(workRoot, 'consumer');
   const project = path.join(workRoot, 'project');
@@ -286,7 +347,8 @@ async function main() {
       cwd: repoRoot,
       shell: isWindows,
     });
-    const tarball = packed.stdout.trim().split('\n').pop().trim();
+    const tarball = packed.stdout.trim().split('\n').pop()?.trim();
+    assert(tarball, `npm pack printed no filename:\n${packed.output}`);
     const tarballPath = path.join(workRoot, tarball);
     assert(existsSync(tarballPath), `npm pack reported ${tarball} but it is not on disk`);
 
@@ -353,7 +415,14 @@ async function main() {
       assert(/\d/.test(result.output), `sync printed no summary:\n${result.output}`);
     });
     check('query returns the commit that was just ingested', () => {
-      const result = runOk(process.execPath, [installedCli, 'query', 'retrieval budget knob', '-C', project, '--no-vector']);
+      const result = runOk(process.execPath, [
+        installedCli,
+        'query',
+        'retrieval budget knob',
+        '-C',
+        project,
+        '--no-vector',
+      ]);
       assert(
         result.stdout.includes('retrieval budget knob'),
         `the ingested commit subject is absent from the packed context:\n${result.stdout}`,
@@ -364,19 +433,23 @@ async function main() {
     });
 
     console.log('\nMCP stdio transport');
-    let handshake;
+    let settled: InitializeResponse | Error;
     try {
-      handshake = await mcpInitialize(installedCli, project);
+      settled = await mcpInitialize(installedCli, project);
     } catch (err) {
-      handshake = err;
+      settled = err instanceof Error ? err : new Error(String(err));
     }
+    // const, not let: narrowing a mutable binding does not survive into the
+    // callbacks below.
+    const handshake = settled;
+
     check('the server answers initialize over stdio', () => {
       assert(!(handshake instanceof Error), handshake instanceof Error ? handshake.message : '');
-      assert(handshake?.result?.serverInfo, `no serverInfo in the response: ${JSON.stringify(handshake)}`);
+      assert(handshake.result?.serverInfo, `no serverInfo in the response: ${JSON.stringify(handshake)}`);
     });
     check('initialize reports the version in package.json', () => {
       assert(!(handshake instanceof Error), 'handshake failed; see above');
-      const reported = handshake?.result?.serverInfo?.version;
+      const reported = handshake.result?.serverInfo?.version;
       assert(reported === expectedVersion, `initialize reported "${reported}", package.json says "${expectedVersion}"`);
     });
 
@@ -395,11 +468,6 @@ async function main() {
   }
 
   process.exit(exitCode);
-}
-
-function mkdirp(dir) {
-  mkdirSync(dir, { recursive: true });
-  return dir;
 }
 
 await main();
