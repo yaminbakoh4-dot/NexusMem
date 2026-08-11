@@ -64,3 +64,39 @@ jobs:
       - run: npm run build
 
       - run: npm test
+
+  # A separate job because it tests a different artifact. `test` above proves
+  # the source is correct; this proves the thing npm hands a user is. Both
+  # defects that ever reached npm -- `bin` losing its `./` and `--version`
+  # frozen at a literal -- passed a fully green `test` job first.
+  package:
+    name: packaged artifact · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # Both platforms: the bin shim npm generates differs between them
+        # (.cmd wrapper vs. symlink), and that shim is part of what is checked.
+        # One Node version is enough -- what varies here is npm's packaging and
+        # the OS, not the language runtime.
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      # Builds, packs, installs the tarball into a throwaway directory and
+      # drives the installed CLI. Also audits the manifest npm *would* publish,
+      # which is a different artifact from the tarball and the only place the
+      # `./`-prefixed bin defect is visible. Nothing is uploaded: the publish
+      # step is --dry-run, and it needs no registry credentials because the
+      # script reads npm's output rather than its exit status.
+      - run: npm run smoke
