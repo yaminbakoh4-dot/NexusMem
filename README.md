@@ -167,7 +167,7 @@ optimizing, and it is somebody else's process.
 - **Shell history without the hook is unscoped.** Scraped history has no directory context, so it is
   attributed to whichever repository you ran `sync` from. Bounded to a tail window, and an
   approximation rather than a guarantee.
-- **Thai, Japanese and Chinese depend on the vector pass.** FTS5's `unicode61` tokenizer splits on
+- **Japanese and Chinese depend on the vector pass.** FTS5's `unicode61` tokenizer splits on
   whitespace, so languages without space boundaries get no useful BM25 recall.
 - **Rebasing strands nodes.** Rewritten history leaves nodes for unreachable commits. They describe
   real events so they are not wrong, but a targeted prune does not exist yet. `sync --rebuild`

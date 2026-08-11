@@ -141,9 +141,9 @@ describe('resolveRenamePath', () => {
 
 describe('unquoteGitPath', () => {
   it('decodes octal byte escapes back into UTF-8', () => {
-    // "ทดสอบ.ts" as git would quote it byte by byte.
-    const quoted = '"\\340\\270\\227.ts"';
-    expect(unquoteGitPath(quoted)).toBe('ท.ts');
+    // "café.ts" as git would quote it byte by byte.
+    const quoted = '"caf\\303\\251.ts"';
+    expect(unquoteGitPath(quoted)).toBe('café.ts');
   });
 
   it('decodes embedded quotes', () => {

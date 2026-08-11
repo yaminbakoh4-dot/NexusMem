@@ -67,8 +67,8 @@ chunk up to `maxChunkChars` (900). Implementation: `src/conversation/chunk.ts`.
 
 Re-ran the acceptance test against a full rebuild. The chunking fix worked
 -- direct SQL query against the rebuilt database confirmed a node with
-`heading = "ทุก factor มี floor ไม่ใช่ 0..1 เต็ม"` ("every factor has a floor,
-not the full 0..1") existed, 971 chars, cleanly isolated. But the query
+`heading = "every factor has a floor, not the full 0..1"` existed, 971 chars,
+cleanly isolated. But the query
 output looked wrong in a new way: many results shared what looked like
 identical titles, reading like duplicate/replayed transcript data.
 
@@ -98,11 +98,12 @@ their summaries are unaffected.
 ```
 $ nexusmem query "why floors on ranking factor score"
 ...
-- 2026-08-08 ...production-grade... — ทุก factor มี floor ไม่ใช่ 0..1 เต็ม
-  **ทุก factor มี floor ไม่ใช่ 0..1 เต็ม** — relevance, signalWeight, recencyFactor
-  อยู่ในช่วง [floor, 1] เหตุผล: การคูณเทอม 0..1 สามเทอม ถ้าตัวไหนตัวหนึ่งเป็น 0
-  จะกลืนอีกสองตัวทันที เช่น commit ที่ตรงคำถามมาก ๆ แต่เก่า 5 ปี จะแพ้ commit
-  ที่ใหม่วันนี้แต่ไม่ค่อยเกี่ยว...
+- 2026-08-08 ...production-grade... — every factor has a floor, not the full 0..1
+  **every factor has a floor, not the full 0..1** — relevance, signalWeight,
+  recencyFactor all sit in [floor, 1]. Reason: multiplying three 0..1 terms means
+  any one of them hitting 0 swallows the other two instantly. A commit that
+  matches the question closely but is 5 years old would lose to a commit from
+  today that is barely relevant...
 ```
 
 The real rationale -- floors exist because multiplying three [0,1] terms
@@ -166,7 +167,7 @@ decision (README § Design decisions) was for.
   like this" becomes answerable from both directions.
 - **`signal`**: needs its own scoring function, analogous to
   `scoreCommit` / `scoreShellCommand`. Starting heuristics: turns containing
-  explanation markers ("because", "the reason", "เพราะ", "ทำไม"), a design
+  explanation markers ("because", "the reason", "rationale"), a design
   decision being stated and then acted on, or a bug being diagnosed score
   high; routine tool-call acknowledgment turns score low. This is the
   collector where Phase 3's local-SLM summarization has the clearest payoff

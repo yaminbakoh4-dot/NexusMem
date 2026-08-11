@@ -23,8 +23,8 @@ const MAX_TITLE_CHARS = 200;
 const MAX_FILES_PER_NODE = 20;
 
 const EXPLANATION_MARKERS =
-  /\b(because|the reason|design decision|trade-?off|instead of|rationale|so that)\b|เพราะ|ทำไม|เหตุผล/i;
-const TRIVIAL_ACK = /^(ok|okay|thanks?|ขอบคุณ|ครับ|ค่ะ|got it|sounds good|👍|done)\.?!?$/i;
+  /\b(because|the reason|design decision|trade-?off|instead of|rationale|so that)\b/i;
+const TRIVIAL_ACK = /^(ok|okay|thanks?|got it|sounds good|👍|done)\.?!?$/i;
 
 /**
  * Prior importance of one chunk of a conversation exchange.
