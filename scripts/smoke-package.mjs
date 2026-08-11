@@ -68,6 +68,9 @@ function run(command, args, opts = {}) {
   if (result.error) throw result.error;
   return {
     status: result.status,
+    // Carried deliberately: a process killed by a signal reports status null
+    // and its cause only here, and that is the POSIX half of isCrash().
+    signal: result.signal,
     stdout: result.stdout ?? '',
     stderr: result.stderr ?? '',
     output: `${result.stdout ?? ''}${result.stderr ?? ''}`,
@@ -270,17 +273,26 @@ async function main() {
     });
 
     const installedCli = path.join(consumer, 'node_modules', 'nexusmem', 'dist', 'cli', 'index.js');
-    const shim = path.join('node_modules', '.bin', isWindows ? 'nexusmem.cmd' : 'nexusmem');
+    const shimRelative = path.join('node_modules', '.bin', isWindows ? 'nexusmem.cmd' : 'nexusmem');
+    const shimAbsolute = path.join(consumer, shimRelative);
+    // Each platform gets the only form that is unambiguous on it. Windows needs
+    // a shell to run a .cmd, and a shell command line is concatenated rather
+    // than quoted, so an absolute temp path would break on the first space --
+    // hence the relative path, resolved by the shell against `cwd`. POSIX needs
+    // no shell, and Node does not promise that a *relative* command is resolved
+    // against the child's `cwd` rather than the parent's -- hence the absolute
+    // path, which has no quoting hazard without a shell in the way.
+    const shimCommand = isWindows ? shimRelative : shimAbsolute;
 
     console.log('\ninstalled artifact');
     check('the package installs and lands its entry point on disk', () => {
       assert(existsSync(installedCli), `${installedCli} is missing from the installed package`);
     });
     check('npm creates a nexusmem executable shim', () => {
-      assert(existsSync(path.join(consumer, shim)), `${shim} was not created by the install`);
+      assert(existsSync(shimAbsolute), `${shimRelative} was not created by the install`);
     });
     check('the shim runs and reports the version in package.json', () => {
-      const result = run(shim, ['--version'], { cwd: consumer, shell: isWindows });
+      const result = run(shimCommand, ['--version'], { cwd: consumer, shell: isWindows });
       assert(result.status === 0, `shim exited ${result.status}\n${result.output}`);
       assert(
         result.stdout.trim() === expectedVersion,

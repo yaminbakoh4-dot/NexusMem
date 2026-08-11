@@ -9,7 +9,19 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- `CHANGELOG.md` now ships inside the npm tarball. npm's always-included list covers `package.json`,
+  `README` and `LICENSE` but not the changelog, so it previously reached GitHub readers only.
+
+### Internal
+
+- `npm run smoke` drives the *packaged* artifact: build, pack, install into a throwaway directory,
+  then run the installed CLI, an end-to-end ingest/query against a fixture repository, and an
+  `initialize` handshake over real stdio. It also audits the manifest `npm publish` would send,
+  which is a different artifact from the tarball. Both defects that ever reached npm users passed a
+  green unit suite first; each is now pinned by a check verified to fail when the defect is
+  reintroduced. Runs in CI on Linux and Windows as its own job.
 
 ## [0.1.2] — 2026-08-10
 
