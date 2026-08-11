@@ -1,0 +1,102 @@
+name: Nightly flake rate
+
+# Instrumentation, not a bug hunt.
+#
+# This machine and the Windows runner intermittently tear git down mid-run: the
+# process reaches `close` carrying an NTSTATUS in the failure range (0xC0000005
+# in practice) instead of an exit code git chose. `GitCrashError` in
+# src/git/exec.ts retries that, and the suite has passed consistently since --
+# but a passing streak is not evidence the fault is gone. The same fault
+# previously produced 2 failures in 5 runs in one window and 0 in 60 raw
+# attempts hours later. It is bursty, so a single run per push samples it far
+# too rarely to say anything.
+#
+# So: run the suite many times on a schedule and record how many failed. One
+# green nightly proves little; a month of them is a real rate. Any failure at
+# all is reported red, because with the retry in place the expected count is 0.
+#
+# The Linux job is a control column. The crash is Windows-specific, so a
+# failure on both platforms points at a genuine regression rather than the
+# spawn fault.
+
+on:
+  schedule:
+    # 18:00 UTC = 01:00 in the author's timezone (UTC+7). GitHub disables
+    # scheduled workflows in a repository with no activity for 60 days.
+    - cron: '0 18 * * *'
+  # Manual runs matter here: without this the only way to test a change to this
+  # file is to wait a day.
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: 'How many times to run the suite per platform'
+        required: false
+        default: '10'
+
+permissions:
+  contents: read
+
+jobs:
+  flake-rate:
+    name: ${{ matrix.os }} · ${{ inputs.runs || 10 }} runs
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      # bash on both platforms so one script covers the matrix. It is present
+      # on the Windows runner as Git Bash.
+      #
+      # No build step: the suite imports from src, so building would only slow
+      # each iteration down without changing what is being measured.
+      - name: Run the suite repeatedly and count failures
+        shell: bash
+        run: |
+          runs="${{ inputs.runs || 10 }}"
+          failures=0
+          failed_runs=""
+
+          for i in $(seq 1 "$runs"); do
+            if npm test > "run-$i.log" 2>&1; then
+              echo "run $i/$runs: pass"
+            else
+              failures=$((failures + 1))
+              failed_runs="$failed_runs $i"
+              echo "run $i/$runs: FAIL"
+              # The tail is what distinguishes an OS teardown (exit 3221225477
+              # = 0xC0000005, or a git command reporting no errno) from a real
+              # assertion failure. Without it a red nightly says nothing about
+              # which of the two happened.
+              tail -40 "run-$i.log"
+            fi
+          done
+
+          {
+            echo "### ${{ matrix.os }}"
+            echo ""
+            echo "| runs | failures | rate |"
+            echo "| --- | --- | --- |"
+            echo "| $runs | $failures | $((failures * 100 / runs))% |"
+            if [ "$failures" -gt 0 ]; then
+              echo ""
+              echo "Failed runs:$failed_runs"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "$failures/$runs runs failed"
+          # Expected count is 0 now that the crash is retried. Anything else is
+          # the signal this workflow exists to surface.
+          [ "$failures" -eq 0 ]
