@@ -361,3 +361,105 @@ describe('toMemoryNodes / collectConversationTurns (conversation)', () => {
     for (const node of nodes) expect(node.body).toContain('why floors on ranking factor score');
   });
 });
+
+/**
+ * A conversation node's id is `sha256(projectId, kind, "<naturalKey>:<chunkIndex>")`,
+ * and `naturalKey` is `claude-code:<uuid>` -- no content in the key at all.
+ * That is what makes this collector immune to the defect that hit `docs`,
+ * whose `doc_section` keys embedded the heading text, so editing a heading
+ * minted a new node and orphaned the old one.
+ *
+ * One hazard survives that difference: the chunk *index*. The id set for a
+ * turn is a function of how many chunks the chunker produces from its reply.
+ * Change `chunkAssistantText` so the same reply yields fewer chunks, and the
+ * high-index nodes sitting in every existing database stop being re-derived
+ * by any future `sync`. Nothing deletes them -- `pruneSourceNodes` is called
+ * for `DOCS_SOURCE` only (src/cli/commands/sync.ts), and extending it to this
+ * source would be actively unsafe, because a rotated-away transcript makes a
+ * full scan look like "these turns no longer exist" and would delete real
+ * remembered history that git does not own a copy of.
+ *
+ * Transcripts are append-only, so a chunker change is the *only* way a
+ * conversation node is orphaned. These tests exist to make that change loud.
+ */
+describe('conversation node id stability', () => {
+  const stableTurn: RawConversationTurn = {
+    naturalKey: 'claude-code:u-stable',
+    userText: 'why is the packer budgeted',
+    assistantText: [
+      '**Budgeting comes first.** A packer that cannot say no will always fill the window.',
+      '**Ranking comes second.** Order only matters once the cut is decided.',
+      '**Recency is a prior.** It never outranks the query itself.',
+    ].join('\n\n'),
+    ts: '2026-08-09T10:00:00.000Z',
+    cwd: 'D:\\ai-projects\\NexusMem',
+    source: 'claude-code',
+  };
+
+  it('derives identical ids from a CRLF reply and its LF twin', () => {
+    // The sibling collector was cut from 37 sections to 8 by exactly this:
+    // `\r\n\r\n` holds no two consecutive `\n`, so the paragraph split never
+    // fires. Transcripts are JSON so they arrive with `\n` today, but the
+    // chunker is shared with `docs`, and nothing here pinned the guarantee.
+    const lf = toMemoryNodes(stableTurn, 'proj1', { maxChunkChars: 200 });
+    const crlf = toMemoryNodes(
+      { ...stableTurn, assistantText: stableTurn.assistantText.replace(/\n/g, '\r\n') },
+      'proj1',
+      { maxChunkChars: 200 },
+    );
+
+    expect(lf.length).toBeGreaterThan(1);
+    expect(crlf.map((n) => n.id)).toEqual(lf.map((n) => n.id));
+    expect(crlf.map((n) => n.meta.heading)).toEqual(lf.map((n) => n.meta.heading));
+    for (const node of crlf) expect(node.body).not.toMatch(/\r/);
+  });
+
+  it('pins the exact ids this reply produces, so a chunker change cannot land silently', () => {
+    // Hardcoded on purpose: deriving them with makeNodeId here would assert
+    // the code against itself and pass no matter what the chunker did.
+    //
+    // If this goes red, the chunk boundaries moved. That may well be the right
+    // change -- but every conversation node already stored at an index this
+    // reply no longer produces is now unreachable and undeletable, so it needs
+    // a deliberate decision rather than a green suite.
+    const nodes = toMemoryNodes(stableTurn, 'proj1', { maxChunkChars: 200 });
+
+    expect(nodes.map((n) => n.id)).toEqual([
+      '1c706f740a1450bf9cbc72e3',
+      '2fb018680e8ff5a4ee8e4c11',
+      'b0e8008bb5e0b20137948fd8',
+    ]);
+    expect(nodes.map((n) => n.meta.chunkIndex)).toEqual([0, 1, 2]);
+  });
+
+  it('strands the tail ids when the same reply chunks into fewer pieces', () => {
+    // The mechanism itself, made executable. Not a statement that orphaning is
+    // desirable -- a statement of what the id scheme does, so the consequence
+    // of a chunker change is visible in the suite rather than only in a
+    // database months later.
+    //
+    // Plain prose on purpose. A `**bold lead**` paragraph opens a section
+    // unconditionally, so a reply built from those chunks the same way at any
+    // budget; only unmarked paragraphs are grouped by size, which is the knob
+    // a chunker change would actually move.
+    const plainTurn: RawConversationTurn = {
+      ...stableTurn,
+      naturalKey: 'claude-code:u-plain',
+      assistantText: [
+        'The packer fills a fixed budget and stops.',
+        'Ranking decides what makes the cut before packing runs.',
+        'Recency only breaks ties between comparably relevant nodes.',
+      ].join('\n\n'),
+    };
+
+    const fine = toMemoryNodes(plainTurn, 'proj1', { maxChunkChars: 60 });
+    const coarse = toMemoryNodes(plainTurn, 'proj1', { maxChunkChars: 4000 });
+
+    expect(coarse.length).toBeLessThan(fine.length);
+
+    const stranded = fine.map((n) => n.id).filter((id) => !coarse.some((n) => n.id === id));
+    expect(stranded).toHaveLength(fine.length - coarse.length);
+    // The surviving ids are a prefix: index 0 keeps its id, the tail loses its.
+    expect(coarse.map((n) => n.id)).toEqual(fine.slice(0, coarse.length).map((n) => n.id));
+  });
+});
