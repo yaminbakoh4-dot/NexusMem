@@ -10,6 +10,7 @@ import { runInit } from './commands/init.js';
 import { runMcpServer } from '../mcp/server.js';
 import { runQuery } from './commands/query.js';
 import { runScanConversation } from './commands/scan-conversation.js';
+import { runScanDiff } from './commands/scan-diff.js';
 import { runScanDocs } from './commands/scan-docs.js';
 import { runScanGit } from './commands/scan-git.js';
 import { runScanShell } from './commands/scan-shell.js';
@@ -161,6 +162,26 @@ program
         since: options.since,
         limit: options.limit,
         merges: options.merges,
+        json: options.json,
+        minSignal: options.minSignal,
+      }),
+    )(),
+  );
+
+program
+  .command('scan-diff')
+  .description('Preview the MemoryNodes commit patches would produce, one per changed file (writes nothing)')
+  .option('-C, --cwd <path>', 'repository path', process.cwd())
+  .option('--since <date>', 'only commits newer than this git date expression, e.g. 90.days.ago')
+  .option('-n, --limit <count>', 'stop after N commits (not N nodes)', (v) => Number.parseInt(v, 10))
+  .option('--min-signal <score>', 'drop nodes below this signal', (v) => Number.parseFloat(v), 0)
+  .option('--json', 'emit MemoryNodes as JSON on stdout', false)
+  .action((options) =>
+    guard(() =>
+      runScanDiff({
+        cwd: options.cwd,
+        since: options.since,
+        limit: options.limit,
         json: options.json,
         minSignal: options.minSignal,
       }),

@@ -8,7 +8,8 @@ Your coding agent can read `git log`. It cannot read the four things you tried l
 didn't work.
 
 NexusMem records what actually happened on your machine (shell commands and their exit codes, git
-history, project docs, optionally your assistant transcripts) into a local SQLite database, and
+history down to the patch of each changed file, project docs, optionally your assistant transcripts)
+into a local SQLite database, and
 serves back a ranked, token-budgeted slice of it on demand. Everything stays on disk. No account, no
 cloud, no telemetry.
 
@@ -58,8 +59,8 @@ by any agent with a terminal. The rest was not.
 
 That `conversation_turn` row only appears because this corpus was synced with `--conversation`.
 Assistant transcripts are the one source that is off by default and stays off until you opt in, since
-they are the likeliest place for a pasted credential to be sitting. A default install indexes git,
-shell and docs.
+they are the likeliest place for a pasted credential to be sitting. A default install indexes git
+commits, their diffs, shell and docs.
 
 Requirements: Node 22 or newer, and git. Node 20 will not work, because `better-sqlite3` ships no
 prebuilt binary for it and Node 20 went end-of-life in April 2026. Ollama is optional and only
@@ -177,6 +178,12 @@ optimizing, and it is somebody else's process.
 - **Scrape-fallback ids drift** if the history file is trimmed from the front between syncs.
   Installing the hook fixes this.
 - **The embedding pass is capped per `sync`**, so a large corpus needs a few runs to embed fully.
+- **Diff indexing is bounded, and deliberately lossy.** A first sync indexes the patches of the most
+  recent 200 commits (later syncs only walk `cursor..HEAD`); merge commits contribute none, since
+  their patch exists only in a combined format this parser does not read; and binaries, lockfiles and
+  build output are skipped so a dependency bump cannot bury the corpus. All of it is still recorded
+  as a `git_commit` node. A patch longer than `limits.maxBodyChars` is truncated, so the tail of a
+  very large change is not indexed. The caps live under `sources.diff` in `config.json`.
 - **Conversation chunking is unevaluated.** Splitting long replies at heading boundaries measurably
   helped, but it has never been tested systematically.
 - **A burst of recent, high-signal commits crowds unrelated queries.** Each prior is individually
@@ -190,7 +197,8 @@ optimizing, and it is somebody else's process.
 
 `init`, `sync`, `query <text>`, `status`, `mcp`, and `hook install|remove|status`.
 
-There are also four dry-run previews (`scan-git`, `scan-shell`, `scan-docs`, `scan-conversation`)
+There are also five dry-run previews (`scan-git`, `scan-diff`, `scan-shell`, `scan-docs`,
+`scan-conversation`)
 that write nothing and print the nodes ingestion *would* create along with their signal scores. That
 is the intended way to tune scoring against a real repository before committing to a change. Add
 `--json` to pipe them somewhere.
@@ -217,13 +225,11 @@ Deleting `.nexusmem/` loses nothing that `sync` cannot rebuild.
 
 ## Status
 
-Ingestion, hybrid retrieval, budgeted packing and the MCP server all work and are covered by 210
+Ingestion, hybrid retrieval, budgeted packing and the MCP server all work and are covered by 245
 tests running on Linux and Windows across Node 22 and 24.
 
-Not done yet: diff bodies are not indexed (commits stop at metadata and diff stats), queries are
-scoped to a single project, there is no local-model summarization pass, and the conversation
-collector has never been audited for the stale-node bug that was found and fixed in the docs
-collector.
+Not done yet: queries are scoped to a single project, and there is no local-model summarization
+pass.
 
 ## Development
 

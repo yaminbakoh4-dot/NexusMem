@@ -44,7 +44,9 @@ export async function runHybridQuery(
   const relevanceScores = vectorHits.length > 0 ? reciprocalRankFusion([bm25Hits, vectorHits]) : undefined;
 
   const ranked = rankHits(hits, { halfLifeDays: opts.halfLifeDays, relevanceScores });
-  const packed = packContext(ranked, opts.budget);
+  // The query reaches the packer as well as the searcher: for a diff node it
+  // decides which hunk of an already-retrieved patch is worth the budget.
+  const packed = packContext(ranked, opts.budget, { query });
 
   return { bm25Count: bm25Hits.length, vectorCount: vectorHits.length, hits, packed };
 }

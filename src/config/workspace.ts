@@ -68,12 +68,30 @@ export const ConfigSchema = z.object({
           include: z.array(z.string()).default(['*.md']),
         })
         .default({ enabled: true, include: ['*.md'] }),
+      /**
+       * The patch text of each commit, one node per changed file.
+       *
+       * Bounded by `maxCommits` rather than by `git.since`, because patches
+       * are an order of magnitude bulkier than commit messages: an unbounded
+       * first sync of a long-lived repository would spend most of its time
+       * and database on code nobody will ask about. Later syncs walk only
+       * `cursor..HEAD`, so the cap effectively applies to the first run.
+       */
+      diff: z
+        .object({
+          enabled: z.boolean().default(true),
+          maxCommits: z.number().int().positive().default(200),
+          maxFilesPerCommit: z.number().int().positive().default(20),
+          contextLines: z.number().int().nonnegative().default(3),
+        })
+        .default({ enabled: true, maxCommits: 200, maxFilesPerCommit: 20, contextLines: 3 }),
     })
     .default({
       git: { enabled: true, since: null, includeMerges: true },
       shell: { enabled: true, tailLines: 300 },
       conversation: { enabled: false },
       docs: { enabled: true, include: ['*.md'] },
+      diff: { enabled: true, maxCommits: 200, maxFilesPerCommit: 20, contextLines: 3 },
     }),
   limits: z
     .object({

@@ -11,6 +11,22 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
 
 ### Added
 
+- **Diff-level nodes.** Commit patches are now indexed, one node per changed file, so a question
+  about *what the change looked like* reaches the lines themselves rather than the commit message
+  and a `+41/-6` summary. New `code_diff` kind, `diff` source, `scan-diff` preview command, and a
+  `sources.diff` config block. Read by a second `git log --patch` walk with its own cursor: folding
+  it into the existing `--numstat` walk would put patch text and numstat rows in one field, where a
+  diff line reading `-1\t2\tfoo` is indistinguishable from a real file entry.
+  Bounded on purpose — 200 commits on a first sync, 20 files per commit, no merges (their patch
+  exists only in a combined format this parser does not read), and binaries, lockfiles and build
+  output skipped. Patches are redacted with the shape-matching rules only; the key/value rule that
+  serves prose would rewrite `const apiKey = process.env.SERVICE_API_KEY` into a redaction marker.
+- **Query-aware diff excerpts.** A packed summary is ~320 characters and a patch is thousands, so
+  the packer now picks the hunk whose tokens match the query and starts the excerpt at the changed
+  line. Found by dogfooding: "what flags are passed to every git invocation" retrieved the right
+  file and then spent the whole summary on a class definition seventy lines above the answer.
+  Matching splits identifiers on case and underscore boundaries, because `\bretry\b` does not match
+  `RETRY_DELAYS_MS` and a natural-language question otherwise never meets the code it is about.
 - `CHANGELOG.md` now ships inside the npm tarball. npm's always-included list covers `package.json`,
   `README` and `LICENSE` but not the changelog, so it previously reached GitHub readers only.
 

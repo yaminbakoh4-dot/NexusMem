@@ -46,8 +46,12 @@ export function parseConventionalHeader(subject: string): ConventionalHeader {
  *
  * The intuition: when an agent asks "why is this code like this?", a `fix` or
  * `refactor` explains far more than a `chore` or `style`.
+ *
+ * Exported because the diff collector scores a file's patch from the same
+ * commit type. A second copy there would be free to drift, which is exactly
+ * how the four `signalColor` copies ended up disagreeing.
  */
-const TYPE_WEIGHTS: Record<string, number> = {
+export const TYPE_WEIGHTS: Record<string, number> = {
   fix: 0.8,
   feat: 0.8,
   revert: 0.78,

@@ -26,7 +26,124 @@ const NODE_OVERHEAD_TOKENS = 8;
 
 const CONVERSATION_ANSWER_MARKER = '\n\nA: ';
 
-function summarize(hit: RankedHit, maxChars: number): string {
+/** Start of a hunk, at the beginning of a line. */
+const HUNK_BOUNDARY = '\n@@ ';
+
+/**
+ * Words carried by almost every question, and therefore by almost every hunk.
+ *
+ * Only used to choose between hunks of one node -- BM25 has its own view of
+ * term weight and is untouched by this list.
+ */
+const STOPWORDS = new Set([
+  'the', 'and', 'for', 'are', 'was', 'were', 'that', 'this', 'with', 'from', 'into', 'not', 'but',
+  'what', 'why', 'how', 'when', 'where', 'which', 'who', 'does', 'did', 'has', 'have', 'had', 'can',
+  'could', 'would', 'should', 'all', 'any', 'every', 'each', 'its', 'our', 'you', 'your', 'about',
+]);
+
+function queryTerms(query: string): string[] {
+  const words = query.toLowerCase().match(/[a-z0-9_]{3,}/g) ?? [];
+  return [...new Set(words.filter((w) => !STOPWORDS.has(w)).map(singularize))];
+}
+
+/**
+ * Word pieces of a line of code.
+ *
+ * Splitting on case transitions as well as punctuation is what lets a natural
+ * question meet an identifier: `RETRY_DELAYS_MS` and `SpawnOptions` become
+ * `retry delays ms` and `spawn options`, so "retry delays" and "spawn" find
+ * them. A plain `\b` word match finds neither, because `_` is a word character
+ * and a camel hump is not a boundary at all.
+ */
+function codeTokens(text: string): Set<string> {
+  const spaced = text.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase();
+  return new Set((spaced.match(/[a-z0-9]{2,}/g) ?? []).map(singularize));
+}
+
+/** Crude, deliberately: enough to let "spawns" meet `spawn`, and nothing more. */
+function singularize(word: string): string {
+  return word.length > 3 && word.endsWith('s') && !word.endsWith('ss') ? word.slice(0, -1) : word;
+}
+
+/**
+ * The part of a patch worth spending the budget on.
+ *
+ * A summary is a few hundred characters and a real patch is thousands, so
+ * taking the head means showing whichever hunk happens to sit at the top of
+ * the file -- an import block, or the licence comment. Dogfooding this on
+ * `src/git/exec.ts` returned the right file for "what flags are passed to
+ * every git invocation" and then showed a class definition seventy lines above
+ * the answer.
+ *
+ * Term overlap is a crude relevance measure, but it is measured against the
+ * *hunks of one already-retrieved node*, where ranking has done its job and
+ * the only question left is which few lines to show.
+ */
+function pickHunk(patch: string, query: string): string {
+  const first = patch.indexOf('@@ ');
+  if (first === -1) return patch;
+
+  const hunks: string[] = [];
+  let rest = patch.slice(first);
+  for (;;) {
+    const next = rest.indexOf(HUNK_BOUNDARY, 1);
+    if (next === -1) {
+      hunks.push(rest);
+      break;
+    }
+    hunks.push(rest.slice(0, next));
+    rest = rest.slice(next + 1);
+  }
+
+  const terms = queryTerms(query);
+  if (terms.length === 0) return hunks[0] ?? patch;
+
+  let best = hunks[0] ?? patch;
+  let bestScore = 0;
+  for (const hunk of hunks) {
+    const tokens = codeTokens(hunk);
+    // Whole tokens, not substrings: a query about git must not score every
+    // hunk in a repository alike because the letters appear inside some
+    // longer identifier.
+    const score = terms.reduce((n, term) => n + (tokens.has(term) ? 1 : 0), 0);
+    if (score > bestScore) {
+      best = hunk;
+      bestScore = score;
+    }
+  }
+  return focusHunk(best, terms);
+}
+
+/**
+ * Drop leading context so the summary starts at the change.
+ *
+ * A hunk opens with up to three unchanged lines, and a 320-character summary
+ * is about six lines: taken from the top, a hunk can spend its entire budget
+ * on code that did not change and stop one line short of the one that did.
+ * The hunk header is kept -- it names the enclosing function, which is how a
+ * reader locates the excerpt.
+ */
+function focusHunk(hunk: string, terms: string[]): string {
+  const lines = hunk.split('\n');
+  const header = lines[0] ?? '';
+  const body = lines.slice(1);
+  const isChange = (line: string) => line.startsWith('+') || line.startsWith('-');
+
+  let idx = terms.length
+    ? body.findIndex((line) => {
+        if (!isChange(line)) return false;
+        const tokens = codeTokens(line);
+        return terms.some((term) => tokens.has(term));
+      })
+    : -1;
+  if (idx === -1) idx = body.findIndex(isChange);
+  if (idx <= 1) return hunk;
+
+  // One line of context above the change, so it does not read as free-floating.
+  return [header, ...body.slice(idx - 1)].join('\n');
+}
+
+function summarize(hit: RankedHit, maxChars: number, query: string): string {
   // Conversation nodes always shape their body as "Q: <question>\n\nA:
   // <answer>" (collectors/conversation.ts repeats the full original question
   // in every chunk so each node is self-contained). The answer is the part
@@ -36,6 +153,18 @@ function summarize(hit: RankedHit, maxChars: number): string {
   if (answerIdx !== -1) {
     const answer = hit.body.slice(answerIdx + CONVERSATION_ANSWER_MARKER.length).trim();
     if (answer) return truncate(answer, maxChars);
+  }
+
+  // A diff body is "<subject>\n<file line>\n\n<hunks>": keep the two header
+  // lines, which say what changed and by how much, then spend the rest of the
+  // budget on the hunk that matches the question.
+  if (hit.kind === 'code_diff') {
+    const patchStart = hit.body.indexOf(HUNK_BOUNDARY);
+    if (patchStart !== -1) {
+      const head = hit.body.slice(0, patchStart).trim();
+      const hunk = pickHunk(hit.body.slice(patchStart + 1), query);
+      return truncate(`${head}\n${hunk}`, maxChars);
+    }
   }
 
   // Body already leads with the title; skip straight to whatever follows it
@@ -55,15 +184,16 @@ function summarize(hit: RankedHit, maxChars: number): string {
 export function packContext(
   ranked: readonly RankedHit[],
   tokensBudget: number,
-  opts: { summaryChars?: number } = {},
+  opts: { summaryChars?: number; query?: string } = {},
 ): PackResult {
   const summaryChars = opts.summaryChars ?? DEFAULT_SUMMARY_CHARS;
+  const query = opts.query ?? '';
   const nodes: PackedNode[] = [];
   let tokensUsed = 0;
   let droppedForBudget = 0;
 
   for (const hit of ranked) {
-    const summary = summarize(hit, summaryChars);
+    const summary = summarize(hit, summaryChars, query);
     const tokens = approxTokens(hit.title) + approxTokens(summary) + NODE_OVERHEAD_TOKENS;
 
     if (tokensUsed + tokens > tokensBudget) {
@@ -95,7 +225,15 @@ export function renderContextBlock(query: string, result: PackResult): string {
   for (const node of result.nodes) {
     lines.push(`- ${node.ts.slice(0, 10)} ${node.title}`);
     if (node.summary && node.summary !== node.title) {
-      lines.push(`  ${node.summary.replace(/\n+/g, ' ')}`);
+      // A patch is the one body whose line structure *is* the content:
+      // flattened onto one line, `-  return a;` and `+  return b;` become an
+      // unreadable run of tokens. Every other kind is prose, where collapsing
+      // whitespace keeps one node to one line.
+      if (node.kind === 'code_diff') {
+        for (const line of node.summary.split('\n')) lines.push(`  ${line}`);
+      } else {
+        lines.push(`  ${node.summary.replace(/\n+/g, ' ')}`);
+      }
     }
   }
   return lines.join('\n');

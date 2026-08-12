@@ -214,7 +214,7 @@ describe('mcp server result shaping (protocol round trip)', () => {
       for (const name of ['search_memory', 'sync_project']) {
         const description = describing(name).toLowerCase();
         expect(description, `${name} has no description`).not.toBe('');
-        for (const source of ['git', 'shell', 'docs', 'conversation']) {
+        for (const source of ['git', 'diff', 'shell', 'docs', 'conversation']) {
           expect(description, `${name} does not mention the ${source} source`).toContain(source);
         }
       }

@@ -1,5 +1,6 @@
 import pc from 'picocolors';
 import { collectConversationTurns } from '../../collectors/conversation.js';
+import { collectCommitDiffs, DIFF_SOURCE } from '../../collectors/diffs.js';
 import { collectDocFiles } from '../../collectors/docs.js';
 import { collectGitCommits } from '../../collectors/git-commits.js';
 import { collectShellHistory } from '../../collectors/shell-history.js';
@@ -119,6 +120,70 @@ async function syncGit(
   // crash mid-sync leaves the old cursor, and the next run redoes the range
   // (harmlessly, because ingestion is idempotent).
   store.setSyncCursor(projectId, GIT_SOURCE, repo.head);
+  return { totals, seen };
+}
+
+async function syncDiffs(
+  store: MemoryStore,
+  projectId: string,
+  opts: SyncOptions,
+  repo: Awaited<ReturnType<typeof loadContext>>['repo'],
+  config: Awaited<ReturnType<typeof loadContext>>['config'],
+  log: (line: string) => void,
+): Promise<{ totals: IngestStats; seen: number }> {
+  const totals: IngestStats = { inserted: 0, updated: 0, unchanged: 0 };
+
+  if (!repo.head) return { totals, seen: 0 };
+  if (!config.sources.diff.enabled) {
+    log(`${pc.dim('diff')} disabled in config`);
+    return { totals, seen: 0 };
+  }
+
+  // Its own cursor, not git's: the two sources walk the same history but are
+  // enabled independently, so a repository that had diffs turned on later must
+  // not inherit git's "already up to date" position and skip everything.
+  let cursor = opts.full || opts.rebuild ? null : store.getSyncCursor(projectId, DIFF_SOURCE);
+
+  if (cursor && !(await isAncestor(repo.root, cursor, repo.head))) {
+    log(`${pc.yellow('diff cursor stale')} ${cursor.slice(0, 7)} is not an ancestor of HEAD — falling back to a bounded walk`);
+    cursor = null;
+  }
+
+  if (cursor === repo.head) {
+    store.setSyncCursor(projectId, DIFF_SOURCE, repo.head);
+    return { totals, seen: 0 };
+  }
+
+  let batch: MemoryNode[] = [];
+  let seen = 0;
+
+  const flush = () => {
+    if (batch.length === 0) return;
+    addStats(totals, store.upsertNodes(batch));
+    batch = [];
+  };
+
+  const nodes = collectCommitDiffs(repo.root, projectId, {
+    afterCommit: cursor,
+    since: opts.since ?? config.sources.git.since,
+    maxCount: config.sources.diff.maxCommits,
+    maxFilesPerCommit: config.sources.diff.maxFilesPerCommit,
+    contextLines: config.sources.diff.contextLines,
+    maxBodyChars: config.limits.maxBodyChars,
+  });
+
+  for await (const node of nodes) {
+    batch.push(node);
+    seen += 1;
+    if (batch.length >= BATCH_SIZE) flush();
+  }
+  flush();
+
+  // Same rule as git: advance only after a walk that completed, so a crash
+  // mid-sync redoes the range instead of silently skipping it.
+  store.setSyncCursor(projectId, DIFF_SOURCE, repo.head);
+  log(`  ${pc.dim(`${DIFF_SOURCE}: ${seen} file diff(s) read`)}`);
+
   return { totals, seen };
 }
 
@@ -276,6 +341,7 @@ export async function runSync(opts: SyncOptions): Promise<number> {
     }
 
     const git = await syncGit(store, projectId, opts, repo, config, log);
+    const diffs = await syncDiffs(store, projectId, opts, repo, config, log);
     const shell = await syncShell(store, projectId, opts, repo.root, config, log);
     const conversation = await syncConversation(store, projectId, repo.root, config, log, opts.conversationOverride);
     const docs = await syncDocs(store, projectId, repo.root, config, log);
@@ -294,6 +360,7 @@ export async function runSync(opts: SyncOptions): Promise<number> {
 
     const totals: IngestStats = { inserted: 0, updated: 0, unchanged: 0 };
     addStats(totals, git.totals);
+    addStats(totals, diffs.totals);
     addStats(totals, shell.totals);
     addStats(totals, conversation.totals);
     addStats(totals, docs.totals);
@@ -304,10 +371,11 @@ export async function runSync(opts: SyncOptions): Promise<number> {
     const conversationEnabled = opts.conversationOverride ?? config.sources.conversation.enabled;
     const conversationPart = conversationEnabled ? `, ${conversation.seen} conversation exchange(s)` : '';
     const docsPart = config.sources.docs.enabled ? `, ${docs.seen} doc section(s)` : '';
+    const diffPart = config.sources.diff.enabled ? `, ${diffs.seen} file diff(s)` : '';
 
     out(
       [
-        `${pc.green('synced')} ${git.seen} commit(s), ${shell.seen} shell entr${shell.seen === 1 ? 'y' : 'ies'}${conversationPart}${docsPart} in ${elapsed}s`,
+        `${pc.green('synced')} ${git.seen} commit(s)${diffPart}, ${shell.seen} shell entr${shell.seen === 1 ? 'y' : 'ies'}${conversationPart}${docsPart} in ${elapsed}s`,
         `  ${pc.green(`+${totals.inserted} new`)}  ${pc.yellow(`~${totals.updated} updated`)}  ${pc.dim(`=${totals.unchanged} unchanged`)}`,
         `  ${pc.dim(`${stats.total} node(s) total across ${stats.distinctFiles} file path(s)`)}`,
         '',
