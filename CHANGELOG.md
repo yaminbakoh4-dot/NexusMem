@@ -9,6 +9,14 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-08-12
+
+**Upgrade note.** Both new sources are on by default, so the first `sync` after upgrading an
+existing project ingests the patches of its 200 most recent commits and starts recording the
+repository in `~/.nexusmem/projects.json`. Set `sources.diff.enabled` to `false` in
+`.nexusmem/config.json` if you would rather not, and `NEXUSMEM_HOME` relocates the user-scoped
+directory. Nothing existing is rewritten or lost.
+
 ### Added
 
 - **Diff-level nodes.** Commit patches are now indexed, one node per changed file, so a question
@@ -111,7 +119,8 @@ First public release.
   there is no local-model summarization pass, and the conversation collector has never been audited
   for the stale-node bug that was found and fixed in the docs collector.
 
-[Unreleased]: https://github.com/yaminbakoh4-dot/NexusMem/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/yaminbakoh4-dot/NexusMem/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/yaminbakoh4-dot/NexusMem/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/yaminbakoh4-dot/NexusMem/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/yaminbakoh4-dot/NexusMem/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/yaminbakoh4-dot/NexusMem/releases/tag/v0.1.0
