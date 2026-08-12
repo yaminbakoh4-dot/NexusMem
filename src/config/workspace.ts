@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { z } from 'zod';
+import { DEFAULT_SLM_MODEL } from '../slm/provider.js';
 
 /** Everything NexusMem stores lives under this directory in the repo root. */
 export const WORKSPACE_DIR = '.nexusmem';
@@ -60,6 +61,34 @@ export const ConfigSchema = z.object({
           enabled: z.boolean().default(false),
         })
         .default({ enabled: false }),
+      /**
+       * One distilled node per finished working session, written by a local
+       * small language model.
+       *
+       * Opt-in for the same reason as `conversation` -- it reads the same
+       * transcripts -- and additionally because it is the only source that
+       * costs real compute. Independent of `conversation.enabled`: summaries
+       * without the raw exchanges is a legitimate, and much smaller, way to
+       * remember a session.
+       */
+      session: z
+        .object({
+          enabled: z.boolean().default(false),
+          /** Ollama model tag. Must be pulled locally; nothing is downloaded automatically. */
+          model: z.string().default(DEFAULT_SLM_MODEL),
+          /** Minutes of quiet before a session counts as finished and can be summarized. */
+          settleMinutes: z.number().int().nonnegative().default(30),
+          /** Sessions summarized per sync. Each is a model call measured in seconds. */
+          maxSessions: z.number().int().positive().default(10),
+          maxPromptChars: z.number().int().positive().default(12_000),
+        })
+        .default({
+          enabled: false,
+          model: DEFAULT_SLM_MODEL,
+          settleMinutes: 30,
+          maxSessions: 10,
+          maxPromptChars: 12_000,
+        }),
       /** Tracked `.md` files -- README, architecture docs. On by default like git/shell: no secrets risk, just project prose. */
       docs: z
         .object({
@@ -90,6 +119,13 @@ export const ConfigSchema = z.object({
       git: { enabled: true, since: null, includeMerges: true },
       shell: { enabled: true, tailLines: 300 },
       conversation: { enabled: false },
+      session: {
+        enabled: false,
+        model: DEFAULT_SLM_MODEL,
+        settleMinutes: 30,
+        maxSessions: 10,
+        maxPromptChars: 12_000,
+      },
       docs: { enabled: true, include: ['*.md'] },
       diff: { enabled: true, maxCommits: 200, maxFilesPerCommit: 20, contextLines: 3 },
     }),

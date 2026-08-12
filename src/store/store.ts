@@ -200,6 +200,21 @@ export class MemoryStore {
     return stats;
   }
 
+  /**
+   * The stored `meta` blob for one node, or null if it has never been
+   * written. Used by the session summarizer to recognise work it has
+   * already done without re-reading the node's whole body.
+   */
+  getNodeMeta(id: string): Record<string, unknown> | null {
+    const row = this.db.prepare('SELECT meta FROM nodes WHERE id = ?').get(id) as { meta: string } | undefined;
+    if (!row) return null;
+    try {
+      return JSON.parse(row.meta) as Record<string, unknown>;
+    } catch {
+      return null; // a meta blob we cannot read is treated as absent, never as a reason to fail a sync
+    }
+  }
+
   getSyncCursor(projectId: string, source: string): string | null {
     const row = this.db
       .prepare('SELECT cursor FROM sync_state WHERE project_id = ? AND source = ?')

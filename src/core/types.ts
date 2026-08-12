@@ -6,7 +6,14 @@
  * came from.
  */
 
-export type NodeKind = 'git_commit' | 'shell_command' | 'code_diff' | 'note' | 'conversation_turn' | 'doc_section';
+export type NodeKind =
+  | 'git_commit'
+  | 'shell_command'
+  | 'code_diff'
+  | 'note'
+  | 'conversation_turn'
+  | 'doc_section'
+  | 'session_summary';
 
 /** A single file touched by an event. */
 export interface FileTouch {

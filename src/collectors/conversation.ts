@@ -59,7 +59,7 @@ const FILE_PATH = /\b(?:[\w.-]+\/)*[\w-]+\.(?:ts|tsx|js|jsx|json|md|py|rs|go|jav
  * direction. False positives (a path-shaped word in prose) are possible and
  * acceptable for a best-effort cross-reference.
  */
-function extractMentionedFiles(text: string): FileTouch[] {
+export function extractMentionedFiles(text: string): FileTouch[] {
   const seen = new Set<string>();
   const files: FileTouch[] = [];
 

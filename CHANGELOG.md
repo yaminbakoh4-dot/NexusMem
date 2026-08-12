@@ -9,6 +9,49 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
 
 ## [Unreleased]
 
+**Upgrade note.** The first `sync` after upgrading drops every stored embedding and rebuilds it.
+This is not optional and it is not a bug: embeddings now come from Ollama's `/api/embed`, which
+returns L2-normalised vectors, while the previous `/api/embeddings` did not — measured norms of 1.0
+and 20.7 for the same input. `nodes_vec` ranks by Euclidean distance and records no per-row
+provenance, so a corpus holding both would separate by scale rather than by meaning. `sync` says
+what it dropped, nodes are untouched, and BM25 keeps working while the rebuild runs. On this repo
+the rebuild was 833 nodes in one pass, inside a 9-second sync.
+
+### Added
+
+- **Session summaries via a local model** (`sources.session`, opt-in, off by default). Each
+  finished session becomes one distilled `session_summary` node — decisions and their reasons —
+  alongside the raw exchanges. Runs a local Ollama chat model (`qwen2.5:3b` by default); nothing is
+  downloaded automatically and no transcript leaves the machine. New `scan-session` command, with
+  `--dry-run` to print the exact prompt a session would produce without calling the model.
+  Bounded three ways: a session must be quiet for `settleMinutes` (default 30) before it is
+  eligible, the prompt is hashed so an unchanged session never reaches the model again, and
+  `maxSessions` caps how many are summarized per sync. Every exchange is redacted before the model
+  sees it, and the model's own output is redacted again before it is stored.
+- **`sync --embed-limit <n>`** to cap the embedding pass, for when draining the whole backlog is not
+  wanted.
+
+### Changed
+
+- **The embedding pass drains the backlog in one `sync`** instead of stopping after 200 nodes, and
+  sends texts to Ollama in batches of 32 — measured at 4.21x the throughput of one call per node
+  (20.3ms → 4.8ms per node, over 96 real nodes from this repo). Leaving it uncapped is safe because
+  paging walks rowids monotonically, so a node the provider failed on is passed over rather than
+  retried forever, and because three consecutive dead requests end the pass: an Ollama that is not
+  running now costs three requests rather than one timeout per node.
+- **Embeddings carry a provider identity.** Changing the embedding model, or upgrading from a
+  release that recorded no identity, drops the vectors and re-embeds rather than ranking across a
+  mixture.
+
+### Known limitation
+
+- Session-summary *titles* depend on the model following a fixed output format, and a 3B model often
+  does not. Measured over 14 real sessions, roughly a third came back usable; the rest were
+  conversational preambles, stray bullets, or a bare "Summary of the Session". Those are rejected
+  and the title falls back to the first line of the question that opened the session — always
+  specific, not always elegant. Compliance was worst on long sessions and on transcripts not in
+  English. `sources.session.model` takes a larger model if it matters.
+
 ## [0.2.0] — 2026-08-12
 
 **Upgrade note.** Both new sources are on by default, so the first `sync` after upgrading an

@@ -44,7 +44,9 @@ Relevant history for: windows spawn failure
 ```
 
 A commit and a docs section, ranked against each other, inside whatever token budget you gave it.
-Nothing was summarized by a model on the way out; the ranker just decided what not to send.
+Nothing was summarized by a model on the way out; the ranker just decided what not to send. (One
+optional source, session summaries, does run a local model — but at ingest time, never on the way
+out. What you query is always stored text.)
 
 For a sense of what actually accumulates, here is `nexusmem status` on this repo after two days:
 
@@ -97,6 +99,35 @@ the transform is monotonic. They just cannot outvote the question anymore.
 
 Without Ollama, vector search is skipped and you get BM25 only. That path is fully supported, not a
 degraded error state; `sync` and `query` both succeed and simply do less.
+
+## Session summaries (optional, local model)
+
+With `sources.session.enabled`, each finished session becomes one distilled node next to the raw
+exchanges — what was decided and why, rather than forty individual turns. It runs a local Ollama
+chat model (`qwen2.5:3b` by default); nothing is downloaded automatically and nothing leaves the
+machine.
+
+```bash
+nexusmem scan-session --dry-run
+```
+
+That prints the exact prompt a session would produce, after redaction and budget trimming, without
+calling the model.
+
+Three things bound the cost. A session is only summarized once it has been quiet for
+`settleMinutes` (default 30), so a session in progress is not re-summarized on every sync. The
+prompt is hashed, and an unchanged hash skips the model entirely — on this repo a steady-state sync
+of 14 summarized sessions takes 0.25s and makes no model calls. And `maxSessions` (default 10) caps
+how many reach the model per run; the rest are reported as queued and picked up next sync.
+
+**What it is actually like, measured on 14 real sessions with `qwen2.5:3b`.** The summaries
+themselves are good: decisions with their reasons, in the shape the prompt asks for. Titles are less
+reliable — the model returned a usable one about a third of the time, and otherwise produced a
+conversational preamble, a stray bullet, or a bare "Summary of the Session". Those are rejected and
+the title falls back to the first line of the question that opened the session, which is always
+specific even when it is not elegant. Compliance was worst on long sessions and on transcripts not
+in English. A larger model (`qwen2.5:7b`) is the lever if the titles matter to you; set
+`sources.session.model`.
 
 ## Use it from an agent
 
@@ -179,6 +210,9 @@ optimizing, and it is somebody else's process.
   at the prompt is not reconstructed.
 - **Scrape-fallback ids drift** if the history file is trimmed from the front between syncs.
   Installing the hook fixes this.
+- **Session-summary titles depend on the model following instructions**, and a 3B model often does
+  not. The fallback keeps them specific rather than generic, but see the section above for what to
+  expect.
 - **Changing the embedding model re-embeds everything.** Vectors from two models are not comparable
   and `nodes_vec` records no per-row provenance, so `sync` drops the lot and rebuilds rather than
   ranking across a mixture. It says so when it happens. Nodes are untouched and BM25 keeps working
@@ -272,10 +306,8 @@ Deleting `.nexusmem/` loses nothing that `sync` cannot rebuild.
 
 ## Status
 
-Ingestion, hybrid retrieval, budgeted packing and the MCP server all work and are covered by 285
-tests running on Linux and Windows across Node 22 and 24.
-
-Not done yet: there is no local-model summarization pass.
+Ingestion, hybrid retrieval, budgeted packing and the MCP server all work and are covered by 315
+tests running on Linux and Windows across Node 22 and 24. Phase 3 is complete.
 
 ## Development
 

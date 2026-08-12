@@ -3,13 +3,17 @@ import { collectConversationTurns } from '../../collectors/conversation.js';
 import { collectCommitDiffs, DIFF_SOURCE } from '../../collectors/diffs.js';
 import { collectDocFiles } from '../../collectors/docs.js';
 import { collectGitCommits } from '../../collectors/git-commits.js';
+import { collectSessionSummaries } from '../../collectors/sessions.js';
 import { collectShellHistory } from '../../collectors/shell-history.js';
 import { recordProject } from '../../config/registry.js';
 import { collectClaudeCodeTranscripts } from '../../conversation/claude-code-reader.js';
+import type { RawConversationTurn } from '../../conversation/types.js';
+import { makeNodeId } from '../../core/ids.js';
 import type { MemoryNode } from '../../core/types.js';
 import { readDocFiles } from '../../docs/read.js';
 import { isAncestor } from '../../git/repo.js';
 import { collectAvailableShellHistory } from '../../shell/detect.js';
+import { OllamaChatProvider } from '../../slm/provider.js';
 import { MemoryStore, type IngestStats } from '../../store/store.js';
 import { OllamaEmbeddingProvider } from '../../vector/embed.js';
 import { embedPendingNodes } from '../../vector/sync.js';
@@ -243,14 +247,14 @@ async function syncShell(
 
 const CONVERSATION_SOURCE = 'conversation:claude-code';
 
-async function syncConversation(
+function syncConversation(
   store: MemoryStore,
   projectId: string,
-  repoRoot: string,
+  turns: readonly RawConversationTurn[],
   config: Awaited<ReturnType<typeof loadContext>>['config'],
   log: (line: string) => void,
   forceEnabled: boolean | undefined,
-): Promise<{ totals: IngestStats; seen: number }> {
+): { totals: IngestStats; seen: number } {
   const totals: IngestStats = { inserted: 0, updated: 0, unchanged: 0 };
   const enabled = forceEnabled ?? config.sources.conversation.enabled;
 
@@ -260,7 +264,6 @@ async function syncConversation(
     return { totals, seen: 0 };
   }
 
-  const turns = await collectClaudeCodeTranscripts(repoRoot);
   if (turns.length === 0) {
     log(`${pc.dim('conversation')} no transcripts found`);
     return { totals, seen: 0 };
@@ -275,6 +278,59 @@ async function syncConversation(
   log(`  ${pc.dim(`${CONVERSATION_SOURCE}: ${nodes.length} of ${turns.length} exchange(s) kept`)}`);
 
   return { totals, seen: nodes.length };
+}
+
+const SESSION_SOURCE = 'session:claude-code';
+
+async function syncSessions(
+  store: MemoryStore,
+  projectId: string,
+  turns: readonly RawConversationTurn[],
+  config: Awaited<ReturnType<typeof loadContext>>['config'],
+  log: (line: string) => void,
+): Promise<{ totals: IngestStats; seen: number }> {
+  const totals: IngestStats = { inserted: 0, updated: 0, unchanged: 0 };
+  const settings = config.sources.session;
+
+  // Opt-in and silent when off, same as the conversation source.
+  if (!settings.enabled) return { totals, seen: 0 };
+
+  if (turns.length === 0) {
+    log(`${pc.dim('session')} no transcripts found`);
+    return { totals, seen: 0 };
+  }
+
+  const result = await collectSessionSummaries(turns, projectId, new OllamaChatProvider({ model: settings.model }), {
+    settleMinutes: settings.settleMinutes,
+    maxSessions: settings.maxSessions,
+    maxPromptChars: settings.maxPromptChars,
+    maxBodyChars: config.limits.maxBodyChars,
+    knownHash: (sessionKey) => {
+      const meta = store.getNodeMeta(makeNodeId(projectId, 'session_summary', sessionKey));
+      return typeof meta?.contentHash === 'string' ? meta.contentHash : null;
+    },
+    onProgress: (done, total) => log(`  ${pc.dim(`session: summarizing ${done}/${total}`)}`),
+  });
+
+  if (result.nodes.length > 0) addStats(totals, store.upsertNodes(result.nodes));
+
+  if (result.providerUnavailable) {
+    log(
+      `${pc.dim('session')} summarization model unavailable (is Ollama running with \`${settings.model}\` pulled?) -- skipped`,
+    );
+  } else {
+    const parts = [`${result.nodes.length} summarized`];
+    if (result.cached > 0) parts.push(`${result.cached} unchanged`);
+    if (result.deferred > 0) parts.push(`${result.deferred} queued for the next sync`);
+    if (result.unsettled > 0) parts.push(`${result.unsettled} still active`);
+    if (result.failed > 0) parts.push(`${result.failed} failed`);
+    log(`  ${pc.dim(`${SESSION_SOURCE}: ${parts.join(', ')}`)}`);
+  }
+
+  // Informational only, like the other full-rescan sources.
+  store.setSyncCursor(projectId, SESSION_SOURCE, `scanned:${result.nodes.length}`);
+
+  return { totals, seen: result.nodes.length };
 }
 
 const DOCS_SOURCE = 'docs';
@@ -353,7 +409,16 @@ export async function runSync(opts: SyncOptions): Promise<number> {
     const git = await syncGit(store, projectId, opts, repo, config, log);
     const diffs = await syncDiffs(store, projectId, opts, repo, config, log);
     const shell = await syncShell(store, projectId, opts, repo.root, config, log);
-    const conversation = await syncConversation(store, projectId, repo.root, config, log, opts.conversationOverride);
+
+    // Read once, used by two sources. Parsing every transcript twice was
+    // measurable on a repo with a long history of sessions, and both sources
+    // want the exact same turns.
+    const conversationEnabled = opts.conversationOverride ?? config.sources.conversation.enabled;
+    const turns =
+      conversationEnabled || config.sources.session.enabled ? await collectClaudeCodeTranscripts(repo.root) : [];
+
+    const conversation = syncConversation(store, projectId, turns, config, log, opts.conversationOverride);
+    const sessions = await syncSessions(store, projectId, turns, config, log);
     const docs = await syncDocs(store, projectId, repo.root, config, log);
 
     let embedLine = '';
@@ -389,19 +454,20 @@ export async function runSync(opts: SyncOptions): Promise<number> {
     addStats(totals, diffs.totals);
     addStats(totals, shell.totals);
     addStats(totals, conversation.totals);
+    addStats(totals, sessions.totals);
     addStats(totals, docs.totals);
 
     const stats = store.stats(projectId);
     const elapsed = ((Date.now() - started) / 1000).toFixed(2);
 
-    const conversationEnabled = opts.conversationOverride ?? config.sources.conversation.enabled;
     const conversationPart = conversationEnabled ? `, ${conversation.seen} conversation exchange(s)` : '';
+    const sessionPart = config.sources.session.enabled ? `, ${sessions.seen} session summar${sessions.seen === 1 ? 'y' : 'ies'}` : '';
     const docsPart = config.sources.docs.enabled ? `, ${docs.seen} doc section(s)` : '';
     const diffPart = config.sources.diff.enabled ? `, ${diffs.seen} file diff(s)` : '';
 
     out(
       [
-        `${pc.green('synced')} ${git.seen} commit(s)${diffPart}, ${shell.seen} shell entr${shell.seen === 1 ? 'y' : 'ies'}${conversationPart}${docsPart} in ${elapsed}s`,
+        `${pc.green('synced')} ${git.seen} commit(s)${diffPart}, ${shell.seen} shell entr${shell.seen === 1 ? 'y' : 'ies'}${conversationPart}${sessionPart}${docsPart} in ${elapsed}s`,
         `  ${pc.green(`+${totals.inserted} new`)}  ${pc.yellow(`~${totals.updated} updated`)}  ${pc.dim(`=${totals.unchanged} unchanged`)}`,
         `  ${pc.dim(`${stats.total} node(s) total across ${stats.distinctFiles} file path(s)`)}`,
         '',

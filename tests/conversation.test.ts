@@ -276,6 +276,7 @@ describe('toMemoryNodes / collectConversationTurns (conversation)', () => {
     ts: '2026-08-09T10:00:00.000Z',
     cwd: 'D:\\ai-projects\\NexusMem',
     source: 'claude-code',
+    sessionKey: 'claude-code:session-1',
   };
 
   it('is content-addressed via the reader-provided naturalKey plus a chunk index', () => {
@@ -394,6 +395,7 @@ describe('conversation node id stability', () => {
     ts: '2026-08-09T10:00:00.000Z',
     cwd: 'D:\\ai-projects\\NexusMem',
     source: 'claude-code',
+    sessionKey: 'claude-code:session-1',
   };
 
   it('derives identical ids from a CRLF reply and its LF twin', () => {

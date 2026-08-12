@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { basename } from 'node:path';
 import { listTranscriptFiles } from './paths.js';
 import type { RawConversationTurn } from './types.js';
 
@@ -75,6 +76,12 @@ function extractAssistantText(line: TranscriptLine): string {
 
 export interface ParseTranscriptOptions {
   source?: string;
+  /**
+   * Identifies the session these lines came from. Claude Code names each
+   * transcript file after its session id, so the caller passes the file's
+   * basename; nothing inside the records is relied on for this.
+   */
+  sessionId?: string;
 }
 
 /**
@@ -89,6 +96,7 @@ export interface ParseTranscriptOptions {
  */
 export function parseClaudeCodeTranscript(raw: string, opts: ParseTranscriptOptions = {}): RawConversationTurn[] {
   const source = opts.source ?? 'claude-code';
+  const sessionKey = `${source}:${opts.sessionId ?? 'unknown'}`;
   const turns: RawConversationTurn[] = [];
 
   let current: { uuid: string; userText: string; ts: string; cwd: string | null; assistantParts: string[] } | null = null;
@@ -103,6 +111,7 @@ export function parseClaudeCodeTranscript(raw: string, opts: ParseTranscriptOpti
       ts: current.ts,
       cwd: current.cwd,
       source,
+      sessionKey,
     });
     current = null;
   };
@@ -153,7 +162,7 @@ export async function collectClaudeCodeTranscripts(repoRoot: string): Promise<Ra
 
   for (const file of files) {
     const raw = await readFile(file, 'utf8');
-    turns.push(...parseClaudeCodeTranscript(raw));
+    turns.push(...parseClaudeCodeTranscript(raw, { sessionId: basename(file, '.jsonl') }));
   }
 
   return turns;

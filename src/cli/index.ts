@@ -14,6 +14,7 @@ import { runScanConversation } from './commands/scan-conversation.js';
 import { runScanDiff } from './commands/scan-diff.js';
 import { runScanDocs } from './commands/scan-docs.js';
 import { runScanGit } from './commands/scan-git.js';
+import { runScanSession, SCAN_SESSION_DEFAULT_MODEL } from './commands/scan-session.js';
 import { runScanShell } from './commands/scan-shell.js';
 import { runStatus } from './commands/status.js';
 import { runSync } from './commands/sync.js';
@@ -223,6 +224,28 @@ program
   .option('--json', 'emit MemoryNodes as JSON on stdout', false)
   .action((options) =>
     guard(() => runScanConversation({ cwd: options.cwd, minSignal: options.minSignal, json: options.json }))(),
+  );
+
+program
+  .command('scan-session')
+  .description('Preview the session summaries a local model would produce (writes nothing)')
+  .option('-C, --cwd <path>', 'repository path', process.cwd())
+  .option('--model <name>', 'Ollama model to summarize with', SCAN_SESSION_DEFAULT_MODEL)
+  .option('--settle-minutes <count>', 'minutes of quiet before a session counts as finished', (v) => Number.parseInt(v, 10), 30)
+  .option('-n, --max-sessions <count>', 'how many sessions to summarize', (v) => Number.parseInt(v, 10), 3)
+  .option('--dry-run', 'print the prompts instead of calling the model', false)
+  .option('--json', 'emit as JSON on stdout', false)
+  .action((options) =>
+    guard(() =>
+      runScanSession({
+        cwd: options.cwd,
+        model: options.model,
+        settleMinutes: options.settleMinutes,
+        maxSessions: options.maxSessions,
+        dryRun: options.dryRun,
+        json: options.json,
+      }),
+    )(),
   );
 
 program

@@ -16,4 +16,14 @@ export interface RawConversationTurn {
   cwd: string | null;
   /** Source identity, e.g. `claude-code`. Becomes `conversation:<source>`. */
   source: string;
+  /**
+   * Which session this exchange belongs to, e.g. `claude-code:<uuid>`.
+   *
+   * The per-turn collector has no use for this -- each of its nodes is
+   * deliberately self-contained. It exists for the session summarizer, which
+   * needs to know where one working session ends and the next begins, and
+   * cannot recover that from timestamps alone (two sessions can interleave
+   * on the same repository).
+   */
+  sessionKey: string;
 }
