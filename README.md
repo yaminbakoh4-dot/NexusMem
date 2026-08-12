@@ -4,6 +4,8 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-informational)](LICENSE)
 ![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen)
 
+![NexusMem: init, sync, status, and a query against this repo's own history](docs/demo.gif)
+
 Your coding agent can read `git log`. It cannot read the four things you tried last Tuesday that
 didn't work.
 
