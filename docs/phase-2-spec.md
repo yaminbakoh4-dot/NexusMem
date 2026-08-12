@@ -116,11 +116,12 @@ this a pass: the tool now explains its own design when asked, which is what
 the acceptance test was actually checking for, even though "rank #1 exactly"
 was never a stated requirement.
 
-**Known follow-up, not yet fixed:** the embedding pass batches 200 nodes per
-`sync` call (`vector/sync.ts`'s default `batchLimit`); a large corpus needs
-multiple `sync` runs before every node is embedded (three were needed here,
-for 426 nodes). Harmless -- BM25 still covers unembedded nodes -- but worth
-either raising the default or looping internally until the queue drains.
+**Known follow-up, fixed in Phase 3:** the embedding pass used to stop after
+200 nodes per `sync` call, so a large corpus needed several runs before every
+node was embedded (three were needed here, for 426 nodes). It now drains the
+whole backlog in one pass and sends texts to Ollama in batches of 32, measured
+at 4.2x the throughput of one call per node (20.3ms/node → 4.8ms/node over 96
+real nodes from this repo). See `vector/sync.ts`.
 
 ## 1. Conversation collector
 

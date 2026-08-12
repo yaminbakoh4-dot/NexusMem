@@ -290,23 +290,69 @@ export class MemoryStore {
     })();
   }
 
-  /** Nodes for this project that have no embedding yet (new, or invalidated by a content change). */
-  findNodesNeedingEmbedding(projectId: string, limit = 200): EmbeddableNode[] {
+  /**
+   * Nodes for this project that have no embedding yet (new, or invalidated
+   * by a content change).
+   *
+   * `afterRowid` makes paging monotonic: the pass walks rowids strictly
+   * upward instead of re-reading "the first N still pending". That matters
+   * because a node the provider *failed* on stays pending -- an offset-free
+   * loop would fetch the same failures forever, which is exactly the shape
+   * of an infinite sync.
+   */
+  findNodesNeedingEmbedding(projectId: string, limit = 200, afterRowid = 0): EmbeddableNode[] {
     return this.db
       .prepare(
         `SELECT n.rowid AS rowid, n.id AS id, n.title AS title, n.body AS body
          FROM nodes n
          LEFT JOIN nodes_vec v ON v.rowid = n.rowid
-         WHERE n.project_id = ? AND v.rowid IS NULL
+         WHERE n.project_id = ? AND v.rowid IS NULL AND n.rowid > ?
+         ORDER BY n.rowid
          LIMIT ?`,
       )
-      .all(projectId, limit) as EmbeddableNode[];
+      .all(projectId, afterRowid, limit) as EmbeddableNode[];
+  }
+
+  /** How many of this project's nodes still need a vector. For progress reporting. */
+  countNodesNeedingEmbedding(projectId: string): number {
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) AS n
+         FROM nodes n
+         LEFT JOIN nodes_vec v ON v.rowid = n.rowid
+         WHERE n.project_id = ? AND v.rowid IS NULL`,
+      )
+      .get(projectId) as { n: number };
+    return row.n;
   }
 
   upsertEmbedding(rowid: number, embedding: Float32Array): void {
     this.db
       .prepare('INSERT OR REPLACE INTO nodes_vec (rowid, embedding) VALUES (?, ?)')
       .run(BigInt(rowid), embedding);
+  }
+
+  /**
+   * Drop every vector in this database, across all projects.
+   *
+   * Whole-database on purpose: `nodes_vec` is shared and holds no
+   * provenance, so once the vectors in it stopped being comparable there is
+   * no subset that is still trustworthy. Nodes are untouched, so the next
+   * embedding pass simply rebuilds them.
+   */
+  dropAllEmbeddings(): number {
+    return this.db.prepare('DELETE FROM nodes_vec').run().changes;
+  }
+
+  getMeta(key: string): string | null {
+    const row = this.db.prepare('SELECT value FROM meta WHERE key = ?').get(key) as { value: string } | undefined;
+    return row?.value ?? null;
+  }
+
+  setMeta(key: string, value: string): void {
+    this.db
+      .prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+      .run(key, value);
   }
 
   /**

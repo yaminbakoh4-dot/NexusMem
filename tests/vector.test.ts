@@ -188,14 +188,14 @@ describe('embedPendingNodes', () => {
 
   it('embeds every pending node with a working provider', async () => {
     const result = await embedPendingNodes(store, new FakeEmbeddingProvider(EMBEDDING_DIM), PROJECT);
-    expect(result).toEqual({ embedded: 1, skipped: 0, providerUnavailable: false });
+    expect(result).toEqual({ embedded: 1, skipped: 0, providerUnavailable: false, invalidated: 0, remaining: 0 });
     expect(store.findNodesNeedingEmbedding(PROJECT)).toHaveLength(0);
   });
 
   it('reports providerUnavailable without throwing when the provider always fails', async () => {
-    const deadProvider = { dimension: EMBEDDING_DIM, embed: async () => null };
+    const deadProvider = { dimension: EMBEDDING_DIM, identity: 'dead', embed: async () => null };
     const result = await embedPendingNodes(store, deadProvider, PROJECT);
-    expect(result).toEqual({ embedded: 0, skipped: 1, providerUnavailable: true });
+    expect(result).toEqual({ embedded: 0, skipped: 1, providerUnavailable: true, invalidated: 0, remaining: 1 });
     // Sync must still succeed with BM25-only nodes intact -- embedding is additive, never a gate.
     expect(store.stats(PROJECT).total).toBe(1);
   });

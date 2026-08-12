@@ -29,6 +29,8 @@ export interface SyncOptions {
   conversationOverride?: boolean;
   /** Skip the embedding pass entirely -- useful when Ollama isn't running and you don't want to wait out its timeout. */
   noEmbed?: boolean;
+  /** Stop the embedding pass after this many nodes. Unset means drain the backlog. */
+  embedLimit?: number;
   quiet: boolean;
   /**
    * Where the final summary goes. Defaults to real stdout for the CLI.
@@ -47,6 +49,10 @@ export interface SyncOptions {
  * huge repository does not hold every node in memory before the first write.
  */
 const BATCH_SIZE = 500;
+
+/** Below this backlog the embedding pass finishes fast enough that progress lines are just noise. */
+const PROGRESS_THRESHOLD = 200;
+const PROGRESS_EVERY = 100;
 
 const GIT_SOURCE = 'git';
 
@@ -352,9 +358,25 @@ export async function runSync(opts: SyncOptions): Promise<number> {
 
     let embedLine = '';
     if (!opts.noEmbed) {
-      const result = await embedPendingNodes(store, new OllamaEmbeddingProvider(), projectId);
+      // Progress matters now that one pass drains the whole backlog: on a
+      // first sync of a large repository this is the longest step by far, and
+      // without a heartbeat it is indistinguishable from a hang.
+      let lastLogged = 0;
+      const result = await embedPendingNodes(store, new OllamaEmbeddingProvider(), projectId, {
+        maxNodes: opts.embedLimit,
+        onInvalidated: (count) =>
+          log(`${pc.yellow('vector')} embedding model changed -- dropped ${count} vector(s), re-embedding from scratch`),
+        onProgress: (attempted, total) => {
+          if (total < PROGRESS_THRESHOLD || attempted - lastLogged < PROGRESS_EVERY) return;
+          lastLogged = attempted;
+          log(`  ${pc.dim(`vector: ${attempted}/${total} embedded`)}`);
+        },
+      });
+
       if (result.embedded > 0) {
-        embedLine = `  ${pc.dim(`vector: ${result.embedded} node(s) embedded`)}${result.skipped > 0 ? pc.dim(`, ${result.skipped} skipped`) : ''}\n`;
+        const skippedPart = result.skipped > 0 ? pc.dim(`, ${result.skipped} skipped`) : '';
+        const remainingPart = result.remaining > 0 ? pc.yellow(`, ${result.remaining} still pending`) : '';
+        embedLine = `  ${pc.dim(`vector: ${result.embedded} node(s) embedded`)}${skippedPart}${remainingPart}\n`;
       } else if (result.providerUnavailable) {
         log(`${pc.dim('vector')} embedding provider unavailable (is Ollama running with nomic-embed-text pulled?) -- BM25-only for now`);
       }

@@ -79,6 +79,9 @@ program
   .option('--shell-lines <count>', 'override the configured shell tail-window size', (v) => Number.parseInt(v, 10))
   .option('--conversation', 'force the conversation source on for this run, without persisting it to config', false)
   .option('--no-embed', 'skip the vector-embedding pass for this run')
+  .option('--embed-limit <count>', 'stop embedding after this many nodes (default: embed everything pending)', (v) =>
+    Number.parseInt(v, 10),
+  )
   .option('-q, --quiet', 'only print the final summary', false)
   .action((options) =>
     guard(() =>
@@ -90,6 +93,7 @@ program
         shellTailLines: options.shellLines,
         conversationOverride: options.conversation ? true : undefined,
         noEmbed: !options.embed,
+        embedLimit: options.embedLimit,
         quiet: options.quiet,
       }),
     )(),

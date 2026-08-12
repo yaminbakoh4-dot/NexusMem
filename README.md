@@ -179,7 +179,10 @@ optimizing, and it is somebody else's process.
   at the prompt is not reconstructed.
 - **Scrape-fallback ids drift** if the history file is trimmed from the front between syncs.
   Installing the hook fixes this.
-- **The embedding pass is capped per `sync`**, so a large corpus needs a few runs to embed fully.
+- **Changing the embedding model re-embeds everything.** Vectors from two models are not comparable
+  and `nodes_vec` records no per-row provenance, so `sync` drops the lot and rebuilds rather than
+  ranking across a mixture. It says so when it happens. Nodes are untouched and BM25 keeps working
+  throughout.
 - **Diff indexing is bounded, and deliberately lossy.** A first sync indexes the patches of the most
   recent 200 commits (later syncs only walk `cursor..HEAD`); merge commits contribute none, since
   their patch exists only in a combined format this parser does not read; and binaries, lockfiles and
@@ -269,11 +272,10 @@ Deleting `.nexusmem/` loses nothing that `sync` cannot rebuild.
 
 ## Status
 
-Ingestion, hybrid retrieval, budgeted packing and the MCP server all work and are covered by 265
+Ingestion, hybrid retrieval, budgeted packing and the MCP server all work and are covered by 285
 tests running on Linux and Windows across Node 22 and 24.
 
-Not done yet: there is no local-model summarization pass, and the embedding pass is still capped per
-`sync`.
+Not done yet: there is no local-model summarization pass.
 
 ## Development
 
