@@ -26,14 +26,20 @@ Set Theme "Catppuccin Mocha"
 
 # --- Motion -----------------------------------------------------------------
 # A blinking cursor costs frames all through the idle Sleeps and buys nothing.
-Set TypingSpeed 55ms
+#
+# The recorder has a hard ~30s ceiling (750 frames at the 25fps it renders
+# GIFs at) that isn't documented anywhere -- the tape simply stops mid-action
+# once it's hit, with no warning. Every Sleep below is sized so the whole
+# script finishes with room to spare, payoff included.
+Set TypingSpeed 35ms
 Set CursorBlink false
 Set Width 1200
 Set Height 760
 
-# The first frame a README shows is the thumbnail. Start the loop partway in so
-# that frame has output on it instead of an empty prompt.
-Set LoopOffset 35%
+# A GIF that loops mid-sentence reads as broken. Land the loop boundary right
+# where the query answer is fully on screen, so anyone catching it mid-repeat
+# sees the payoff, not a blank prompt or a half-typed command.
+Set LoopOffset 85%
 
 # Setup is recorded but not shown: clean db, quiet prompt, no git noise.
 # The prompt is hardcoded rather than starship on purpose -- a prompt that
@@ -47,16 +53,27 @@ Show
 
 Sleep 1s
 
-Type "nexusmem init" Sleep 400ms Enter
-Sleep 2s
+Type "nexusmem init" Sleep 300ms Enter
+Sleep 1.5s
 
-Type "nexusmem sync" Sleep 400ms Enter
+# Sync is real, not staged -- whatever it prints here is this repo's own
+# history, indexed live during the recording.
+Type "nexusmem sync" Sleep 300ms Enter
+Sleep 3s
+
+# The scale gap is the actual pitch: sixteen commits git already gave you,
+# next to hundreds of shell entries git never had.
+Type "nexusmem status" Sleep 300ms Enter
+Sleep 2.5s
+
+# A typed comment, not a caption burned into the frame -- it stays honest
+# about being a real terminal and still tells the viewer what to expect
+# from the next line before they read its output. Kept short: every typed
+# character eats into the ~30s budget above.
+Type `# what broke on windows?` Sleep 300ms Enter
+Sleep 300ms
+
+Type `nexusmem query "windows spawn failure"` Sleep 300ms Enter
 Sleep 6s
 
-Type "nexusmem status" Sleep 400ms Enter
-Sleep 4s
-
-Type `nexusmem query "windows spawn failure"` Sleep 400ms Enter
-Sleep 6s
-
-Sleep 2s
+Sleep 1s
