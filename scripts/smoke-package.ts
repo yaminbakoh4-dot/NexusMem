@@ -328,6 +328,12 @@ async function main(): Promise<void> {
   const project = path.join(workRoot, 'project');
   let exitCode = 0;
 
+  // The installed CLI records every repository it syncs in the user-scoped
+  // project registry, so without this a smoke run leaves a dead entry in the
+  // developer's (or the CI runner's) real `~/.nexusmem`. Child processes
+  // inherit `process.env`, so setting it here covers all of them.
+  process.env.NEXUSMEM_HOME = path.join(workRoot, 'home');
+
   console.log(`nexusmem smoke test — expecting version ${expectedVersion}`);
   console.log(`workspace: ${workRoot}\n`);
 

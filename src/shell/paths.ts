@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
+import { globalWorkspaceDir } from '../config/paths.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -19,16 +20,11 @@ export function zshHistoryPath(): string {
 }
 
 /**
- * The user-scoped (not repo-scoped) NexusMem directory.
- *
- * The hook log lives here rather than under any one repo's `.nexusmem/`,
- * because a shell session moves between projects -- the log is one growing
- * stream shared across every repo, filtered to each repo's cwd at read time.
+ * The hook log lives in the user-scoped directory rather than under any one
+ * repo's `.nexusmem/`, because a shell session moves between projects -- the
+ * log is one growing stream shared across every repo, filtered to each repo's
+ * cwd at read time.
  */
-export function globalWorkspaceDir(): string {
-  return join(homedir(), '.nexusmem');
-}
-
 export function hookLogPath(): string {
   return join(globalWorkspaceDir(), 'shell-history.jsonl');
 }

@@ -10,6 +10,8 @@ export interface PackedNode {
   score: number;
   summary: string;
   tokens: number;
+  /** Set only for a cross-project query, where a line's repository is not implied by context. */
+  project?: string;
 }
 
 export interface PackResult {
@@ -210,6 +212,7 @@ export function packContext(
       score: hit.score,
       summary,
       tokens,
+      ...(hit.project ? { project: hit.project } : {}),
     });
     tokensUsed += tokens;
   }
@@ -223,7 +226,11 @@ export function renderContextBlock(query: string, result: PackResult): string {
 
   const lines = [`Relevant history for: ${query}`, ''];
   for (const node of result.nodes) {
-    lines.push(`- ${node.ts.slice(0, 10)} ${node.title}`);
+    // The project tag is the whole point of a cross-project answer: without
+    // it the reader cannot tell which repository a line describes, and two
+    // repositories' conventions read as one contradictory history.
+    const project = node.project ? `[${node.project}] ` : '';
+    lines.push(`- ${node.ts.slice(0, 10)} ${project}${node.title}`);
     if (node.summary && node.summary !== node.title) {
       // A patch is the one body whose line structure *is* the content:
       // flattened onto one line, `-  return a;` and `+  return b;` become an

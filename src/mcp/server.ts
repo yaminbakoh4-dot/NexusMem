@@ -23,10 +23,16 @@ export function createServer(): McpServer {
         projectRoot: z.string().describe('Absolute path to the repository root'),
         query: z.string().describe('Free-text question or search terms'),
         budget: z.number().int().positive().optional().describe('Max tokens in the returned context block. Default 2000.'),
+        allProjects: z
+          .boolean()
+          .optional()
+          .describe(
+            'Search every repository NexusMem has been run in on this machine, not just projectRoot. Use when the answer may live in a different project (a pattern solved elsewhere, a tool that failed the same way before). Each result is tagged with its repository.',
+          ),
       },
     },
-    async ({ projectRoot, query, budget }) => {
-      const result = await searchMemory({ projectRoot, query, budget });
+    async ({ projectRoot, query, budget, allProjects }) => {
+      const result = await searchMemory({ projectRoot, query, budget, allProjects });
       // The packed context block goes in BOTH fields: clients differ on which
       // one they surface to the model, and a client that prefers
       // structuredContent would otherwise see only the match stats -- the
@@ -40,6 +46,7 @@ export function createServer(): McpServer {
           vectorMatched: result.vectorMatched,
           tokensUsed: result.tokensUsed,
           tokensBudget: result.tokensBudget,
+          projectsSearched: result.projectsSearched,
         } as Record<string, unknown>,
       };
     },

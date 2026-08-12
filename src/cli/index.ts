@@ -7,6 +7,7 @@ import { NotAGitRepositoryError } from '../git/repo.js';
 import { ProfileNotFoundError } from '../hooks/install.js';
 import { runHookInstall, runHookRemove, runHookStatus } from './commands/hook.js';
 import { runInit } from './commands/init.js';
+import { runProjects } from './commands/projects.js';
 import { runMcpServer } from '../mcp/server.js';
 import { runQuery } from './commands/query.js';
 import { runScanConversation } from './commands/scan-conversation.js';
@@ -131,6 +132,7 @@ program
   .option('-n, --candidates <count>', 'how many search hits to rank before packing', (v) => Number.parseInt(v, 10), 30)
   .option('--half-life <days>', 'days for a node\'s recency weight to halve', (v) => Number.parseFloat(v))
   .option('--no-vector', 'BM25 only -- skip embedding the query and vector search')
+  .option('-a, --all-projects', 'search every registered repository, not just this one', false)
   .option('--json', 'emit the packed result as JSON on stdout', false)
   .action((text: string, options) =>
     guard(() =>
@@ -141,10 +143,18 @@ program
         candidates: options.candidates,
         halfLifeDays: options.halfLife,
         noVector: !options.vector,
+        allProjects: options.allProjects,
         json: options.json,
       }),
     )(),
   );
+
+program
+  .command('projects')
+  .description('List the repositories `query --all-projects` would search')
+  .option('--prune', 'forget registered projects whose database is no longer on disk', false)
+  .option('--json', 'emit the registry as JSON on stdout', false)
+  .action((options) => guard(() => runProjects({ prune: options.prune, json: options.json }))());
 
 program
   .command('scan-git')

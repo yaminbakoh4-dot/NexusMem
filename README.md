@@ -184,6 +184,14 @@ optimizing, and it is somebody else's process.
   build output are skipped so a dependency bump cannot bury the corpus. All of it is still recorded
   as a `git_commit` node. A patch longer than `limits.maxBodyChars` is truncated, so the tail of a
   very large change is not indexed. The caps live under `sources.diff` in `config.json`.
+- **Cross-project recall favours breadth.** Each repository's hits are fused by rank, so a project
+  whose best match is mediocre still contributes a rank-1 item, and rank 1 is worth the same in
+  every list. Adding a repository that has little to say about your question still pushes a few of
+  its results into the budget. Signal, recency and the budget are what hold that in check; there is
+  no per-project quality weight.
+- **The project registry is an index, not a source of truth.** It can point at a database that has
+  moved or been deleted; those are reported and skipped, never silently pruned, because an
+  unmounted drive is not a deleted project.
 - **Conversation chunking is unevaluated.** Splitting long replies at heading boundaries measurably
   helped, but it has never been tested systematically.
 - **A burst of recent, high-signal commits crowds unrelated queries.** Each prior is individually
@@ -195,7 +203,7 @@ optimizing, and it is somebody else's process.
 
 ## Commands
 
-`init`, `sync`, `query <text>`, `status`, `mcp`, and `hook install|remove|status`.
+`init`, `sync`, `query <text>`, `status`, `projects`, `mcp`, and `hook install|remove|status`.
 
 There are also five dry-run previews (`scan-git`, `scan-diff`, `scan-shell`, `scan-docs`,
 `scan-conversation`)
@@ -207,6 +215,34 @@ Every command takes `-C <path>` to target another repository. On `sync`, `--conv
 transcript source in for one run without persisting it, `--no-embed` skips the vector pass, and
 `--rebuild` drops the project's nodes and re-ingests from scratch.
 
+## Recall across projects
+
+`query --all-projects` searches every repository you have run NexusMem in, not just the current one,
+and tags each result with the repository it came from:
+
+```
+$ nexusmem query --all-projects "why was the retry budget raised"
+scope   2 project(s): NexusMem, uploader
+
+- 2026-08-12 [uploader] fix: raise the retry budget after the S3 upload timeouts
+- 2026-08-12 [uploader] retry.ts @ 8d0f98b — fix: raise the retry budget after the S3 upload timeouts
+  @@ -1 +1 @@
+  -export const RETRY_BUDGET = 3;
+  +export const RETRY_BUDGET = 5;
+- 2026-08-09 [NexusMem] fix(git): retry a transient failure to spawn git
+```
+
+Databases stay per-repository — there is no shared global store, and deleting one repo's
+`.nexusmem/` still removes exactly that repo's memory. What makes the others findable is a plain
+index at `~/.nexusmem/projects.json`, written by `init` and refreshed by every `sync`. `nexusmem
+projects` shows what is in it, and `--prune` forgets entries whose database is gone.
+
+Ranking across repositories uses reciprocal rank fusion per project rather than raw BM25, because a
+BM25 cost is computed against its own corpus and means different things in a 50-node and a
+50,000-node database. The trade is stated in *Where it breaks*.
+
+The MCP `search_memory` tool takes the same switch as `allProjects: true`.
+
 ## On disk
 
 ```
@@ -214,7 +250,13 @@ transcript source in for one run without persisting it, `--no-embed` skips the v
   .gitignore     '*' — the workspace ignores itself, so init never edits a file it doesn't own
   config.json    validated on read; a corrupt config fails loudly rather than silently
   memory.db      SQLite in WAL mode
+
+~/.nexusmem/
+  projects.json      which repositories exist, for cross-project recall; a corrupt one reads as empty
+  shell-history.jsonl  the hook's log, if you installed it
 ```
+
+`NEXUSMEM_HOME` overrides the user-scoped directory.
 
 Node ids are content-addressed from `sha256(projectId + kind + naturalKey)`, so running `sync` twice
 cannot produce duplicates and ingestion stays correct even if a cursor is lost. Project identity
@@ -225,11 +267,11 @@ Deleting `.nexusmem/` loses nothing that `sync` cannot rebuild.
 
 ## Status
 
-Ingestion, hybrid retrieval, budgeted packing and the MCP server all work and are covered by 245
+Ingestion, hybrid retrieval, budgeted packing and the MCP server all work and are covered by 265
 tests running on Linux and Windows across Node 22 and 24.
 
-Not done yet: queries are scoped to a single project, and there is no local-model summarization
-pass.
+Not done yet: there is no local-model summarization pass, and the embedding pass is still capped per
+`sync`.
 
 ## Development
 

@@ -21,6 +21,17 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
   exists only in a combined format this parser does not read), and binaries, lockfiles and build
   output skipped. Patches are redacted with the shape-matching rules only; the key/value rule that
   serves prose would rewrite `const apiKey = process.env.SERVICE_API_KEY` into a redaction marker.
+- **Cross-project recall.** `query --all-projects` (and `search_memory`'s `allProjects`) searches
+  every repository NexusMem has been run in on this machine, tagging each result with the repository
+  it came from. Databases stay per-repository — a shared global store was rejected for giving up the
+  property that deleting one repo's `.nexusmem/` removes that repo's memory and nothing else — so a
+  plain index at `~/.nexusmem/projects.json`, written by `init` and refreshed by `sync`, is what
+  makes the others findable. New `projects` command lists it; `--prune` forgets entries whose
+  database is gone. A stale or corrupt registry degrades the query, never fails it.
+  Ranking fuses each project's list by rank (RRF) instead of comparing raw BM25 costs, which are
+  computed against their own corpus and are not comparable across databases. The bias this leaves —
+  every project's rank-1 hit is worth the same, so recall favours breadth — is documented rather
+  than hidden.
 - **Query-aware diff excerpts.** A packed summary is ~320 characters and a patch is thousands, so
   the packer now picks the hunk whose tokens match the query and starts the excerpt at the changed
   line. Found by dogfooding: "what flags are passed to every git invocation" retrieved the right
@@ -32,6 +43,11 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
 
 ### Internal
 
+- The test suite no longer writes to the developer's real `~/.nexusmem`. `sync` records the
+  repository it ingested in the project registry, and the suite syncs temporary repositories in
+  several places, so a green run left seven dead entries behind — found by running `nexusmem
+  projects` after the fact, not by any test. `tests/setup.ts` now points `NEXUSMEM_HOME` at a
+  throwaway directory for the whole suite, and one test fails if that guard is ever removed.
 - `npm run smoke` drives the *packaged* artifact: build, pack, install into a throwaway directory,
   then run the installed CLI, an end-to-end ingest/query against a fixture repository, and an
   `initialize` handshake over real stdio. It also audits the manifest `npm publish` would send,

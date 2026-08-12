@@ -8,6 +8,7 @@ import {
   writeConfig,
   writeWorkspaceGitignore,
 } from '../../config/workspace.js';
+import { recordProject } from '../../config/registry.js';
 import { makeProjectId } from '../../core/project.js';
 import { readRepoInfo } from '../../git/repo.js';
 import { installHook, ProfileNotFoundError, resolveHookTarget } from '../../hooks/install.js';
@@ -62,6 +63,10 @@ export async function runInit(opts: InitOptions): Promise<number> {
   } finally {
     store.close();
   }
+
+  // Cross-project recall can only find a database it has been told about --
+  // nothing else on the machine points at `<repo>/.nexusmem/`.
+  await recordProject({ projectId, root: repo.root, dbPath: ws.dbPath, originUrl: repo.originUrl });
 
   const lines = [
     `${pc.green('initialized')} ${ws.dir}`,

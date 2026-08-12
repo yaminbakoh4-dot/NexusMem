@@ -35,6 +35,14 @@ export interface SearchHit {
   signal: number;
   /** bm25 score; lower is a better lexical match. */
   rank: number;
+  /**
+   * Human-readable name of the project this hit came from.
+   *
+   * Never set by the store, which is always querying one project and has
+   * nothing to disambiguate. The cross-project pipeline attaches it so a
+   * packed context block can say which repository each line is from.
+   */
+  project?: string;
 }
 
 interface NodeRow {

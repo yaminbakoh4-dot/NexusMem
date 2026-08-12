@@ -1,7 +1,9 @@
+import { basename } from 'node:path';
 import { makeProjectId } from '../core/project.js';
 import { readRepoInfo } from '../git/repo.js';
 import { renderContextBlock } from '../retrieval/pack.js';
-import { runHybridQuery } from '../retrieval/query-pipeline.js';
+import { runCrossProjectQuery, runHybridQuery } from '../retrieval/query-pipeline.js';
+import { openAllProjectSources } from '../retrieval/sources.js';
 import { resolveWorkspace } from '../config/workspace.js';
 import { MemoryStore } from '../store/store.js';
 import { OllamaEmbeddingProvider } from '../vector/embed.js';
@@ -22,6 +24,8 @@ export interface SearchMemoryInput {
   candidates?: number;
   /** BM25 only -- skip embedding the query and vector search. Mainly for tests; real callers want hybrid retrieval. */
   noVector?: boolean;
+  /** Search every repository NexusMem has been run in on this machine, not just `projectRoot`. */
+  allProjects?: boolean;
 }
 
 export interface SearchMemoryOutput {
@@ -31,6 +35,8 @@ export interface SearchMemoryOutput {
   vectorMatched: number;
   tokensUsed: number;
   tokensBudget: number;
+  /** Names of the repositories actually searched -- one entry unless `allProjects` was set. */
+  projectsSearched: string[];
 }
 
 export async function searchMemory(input: SearchMemoryInput): Promise<SearchMemoryOutput> {
@@ -39,14 +45,33 @@ export async function searchMemory(input: SearchMemoryInput): Promise<SearchMemo
   const projectId = makeProjectId({ root: repo.root, originUrl: repo.originUrl });
   const budget = input.budget ?? 2000;
   const candidates = input.candidates ?? 30;
+  const queryOpts = {
+    budget,
+    candidates,
+    embeddingProvider: input.noVector ? null : new OllamaEmbeddingProvider(),
+  };
+
+  if (input.allProjects) {
+    const opened = await openAllProjectSources({ projectId, root: repo.root, dbPath: ws.dbPath });
+    try {
+      const { bm25Count, vectorCount, hits, packed } = await runCrossProjectQuery(opened.sources, input.query, queryOpts);
+      return {
+        text: renderContextBlock(input.query, packed),
+        matched: hits.length,
+        bm25Matched: bm25Count,
+        vectorMatched: vectorCount,
+        tokensUsed: packed.tokensUsed,
+        tokensBudget: packed.tokensBudget,
+        projectsSearched: opened.sources.map((s) => s.label),
+      };
+    } finally {
+      opened.close();
+    }
+  }
 
   const store = MemoryStore.open(ws.dbPath);
   try {
-    const { bm25Count, vectorCount, hits, packed } = await runHybridQuery(store, projectId, input.query, {
-      budget,
-      candidates,
-      embeddingProvider: input.noVector ? null : new OllamaEmbeddingProvider(),
-    });
+    const { bm25Count, vectorCount, hits, packed } = await runHybridQuery(store, projectId, input.query, queryOpts);
 
     return {
       text: renderContextBlock(input.query, packed),
@@ -55,6 +80,7 @@ export async function searchMemory(input: SearchMemoryInput): Promise<SearchMemo
       vectorMatched: vectorCount,
       tokensUsed: packed.tokensUsed,
       tokensBudget: packed.tokensBudget,
+      projectsSearched: [basename(repo.root) || repo.root],
     };
   } finally {
     store.close();

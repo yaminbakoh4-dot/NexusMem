@@ -1,7 +1,8 @@
 import pc from 'picocolors';
 import { approxTokens } from '../../core/text.js';
 import { renderContextBlock } from '../../retrieval/pack.js';
-import { runHybridQuery } from '../../retrieval/query-pipeline.js';
+import { runCrossProjectQuery, runHybridQuery } from '../../retrieval/query-pipeline.js';
+import { openAllProjectSources } from '../../retrieval/sources.js';
 import { MemoryStore } from '../../store/store.js';
 import { OllamaEmbeddingProvider } from '../../vector/embed.js';
 import { loadContext } from '../context.js';
@@ -16,20 +17,52 @@ export interface QueryOptions {
   halfLifeDays?: number;
   /** Skip embedding the query and vector search entirely -- BM25-only, same as before hybrid retrieval existed. */
   noVector?: boolean;
+  /** Search every registered repository, not just this one. */
+  allProjects?: boolean;
   json: boolean;
 }
 
 export async function runQuery(opts: QueryOptions): Promise<number> {
-  const { ws, projectId } = await loadContext(opts.cwd);
-  const store = MemoryStore.open(ws.dbPath);
+  const { repo, ws, projectId } = await loadContext(opts.cwd);
+
+  // Exactly one of these owns the database handles: cross-project mode opens
+  // this repo's database as one source among several, so opening it twice
+  // would leave a second connection for the same file with nothing to do.
+  const opened = opts.allProjects
+    ? await openAllProjectSources({ projectId, root: repo.root, dbPath: ws.dbPath })
+    : null;
+  let store: MemoryStore | null = null;
 
   try {
-    const { bm25Count, vectorCount, hits, packed } = await runHybridQuery(store, projectId, opts.query, {
+    const queryOpts = {
       budget: opts.budget,
       candidates: opts.candidates,
       halfLifeDays: opts.halfLifeDays,
       embeddingProvider: opts.noVector ? null : new OllamaEmbeddingProvider(),
-    });
+    };
+
+    let result;
+    if (opened) {
+      result = await runCrossProjectQuery(opened.sources, opts.query, queryOpts);
+    } else {
+      store = MemoryStore.open(ws.dbPath);
+      result = await runHybridQuery(store, projectId, opts.query, queryOpts);
+    }
+    const { bm25Count, vectorCount, hits, packed } = result;
+
+    if (opened && !opts.json) {
+      const searched = opened.sources.map((s) => s.label).join(', ');
+      process.stderr.write(`${pc.dim('scope  ')} ${opened.sources.length} project(s): ${searched}\n`);
+      for (const { entry } of opened.unreadable) {
+        process.stderr.write(`${pc.yellow('unreadable')} ${entry.root} -- skipped\n`);
+      }
+      if (opened.missing.length > 0) {
+        process.stderr.write(
+          `${pc.dim('skipped')} ${opened.missing.length} registered project(s) whose database is not on disk` +
+            ` ${pc.dim('(nexusmem projects --prune to forget them)')}\n`,
+        );
+      }
+    }
 
     const matched = hits.length;
 
@@ -93,6 +126,7 @@ export async function runQuery(opts: QueryOptions): Promise<number> {
     process.stdout.write(`${renderContextBlock(opts.query, packed)}\n`);
     return 0;
   } finally {
-    store.close();
+    opened?.close();
+    store?.close();
   }
 }

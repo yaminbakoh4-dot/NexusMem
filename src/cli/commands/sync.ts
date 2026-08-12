@@ -4,6 +4,7 @@ import { collectCommitDiffs, DIFF_SOURCE } from '../../collectors/diffs.js';
 import { collectDocFiles } from '../../collectors/docs.js';
 import { collectGitCommits } from '../../collectors/git-commits.js';
 import { collectShellHistory } from '../../collectors/shell-history.js';
+import { recordProject } from '../../config/registry.js';
 import { collectClaudeCodeTranscripts } from '../../conversation/claude-code-reader.js';
 import type { MemoryNode } from '../../core/types.js';
 import { readDocFiles } from '../../docs/read.js';
@@ -334,6 +335,9 @@ export async function runSync(opts: SyncOptions): Promise<number> {
 
   try {
     store.upsertProject({ id: projectId, root: repo.root, originUrl: repo.originUrl });
+    // Refreshed on every sync, not only at init: a repo initialized before
+    // the registry existed, or moved since, is re-pointed by being used.
+    await recordProject({ projectId, root: repo.root, dbPath: ws.dbPath, originUrl: repo.originUrl });
 
     if (opts.rebuild) {
       const removed = store.clearProject(projectId);
