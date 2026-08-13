@@ -9,6 +9,8 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-08-13
+
 **Upgrade note.** The first `sync` after upgrading drops every stored embedding and rebuilds it.
 This is not optional and it is not a bug: embeddings now come from Ollama's `/api/embed`, which
 returns L2-normalised vectors, while the previous `/api/embeddings` did not — measured norms of 1.0
@@ -172,7 +174,8 @@ First public release.
   there is no local-model summarization pass, and the conversation collector has never been audited
   for the stale-node bug that was found and fixed in the docs collector.
 
-[Unreleased]: https://github.com/yaminbakoh4-dot/NexusMem/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/yaminbakoh4-dot/NexusMem/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/yaminbakoh4-dot/NexusMem/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/yaminbakoh4-dot/NexusMem/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/yaminbakoh4-dot/NexusMem/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/yaminbakoh4-dot/NexusMem/compare/v0.1.0...v0.1.1
