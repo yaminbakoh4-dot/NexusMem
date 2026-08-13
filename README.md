@@ -83,7 +83,7 @@ they agree on. No hand-tuned normalization constant sits between them.
 Ranking then multiplies three factors:
 
 ```
-score = relevance × signal^0.431 × recency^0.576
+score = relevance × signal^0.215 × recency^0.288
 ```
 
 `relevance` comes from the query. `signal` (a `fix:` commit outranks a `chore:`; a command that
@@ -93,9 +93,17 @@ zero out a strong match.
 
 Those exponents are derived, not tuned. Priors kept overturning the query: on one real query a `fix:`
 commit took rank 1 from a better-matching docs section on a 44% signal edge against a 15% relevance
-deficit. So each prior is raised to the power that caps its entire range at overturning a 2× relevance
-gap, by solving `span^exponent = 2`. Priors still order equally-relevant hits exactly as before, since
-the transform is monotonic. They just cannot outvote the question anymore.
+deficit. So the priors get a **shared** budget — across their whole range they may overturn at most a
+2× relevance gap — split evenly between them, and each is raised to the power that makes its own span
+worth exactly its share (`span^exponent = √2`). Priors still order equally-relevant hits exactly as
+before, since the transform is monotonic. They just cannot outvote the question anymore.
+
+The budget is shared rather than per-prior for a reason found by dogfooding, not by reading the
+arithmetic: the score *multiplies* the priors, so capping each at 2× separately left the pair free to
+overturn 4×. That describes every commit made during an active working day — fresh and high-signal at
+once — so the failure landed on precisely the days with the most worth remembering. A query about the
+PowerShell hook returned two unrelated same-day `fix:` commits at ranks 3 and 4 while the section that
+answered it sat at rank 6. Adding a third prior now re-divides the same budget instead of enlarging it.
 
 Without Ollama, vector search is skipped and you get BM25 only. That path is fully supported, not a
 degraded error state; `sync` and `query` both succeed and simply do less.
@@ -233,12 +241,13 @@ optimizing, and it is somebody else's process.
   unmounted drive is not a deleted project.
 - **Conversation chunking is unevaluated.** Splitting long replies at heading boundaries measurably
   helped, but it has never been tested systematically.
-- **A burst of recent, high-signal commits crowds unrelated queries.** Each prior is individually
-  capped at overturning a 2× relevance gap, but the caps are per-prior, not joint, so a node that is
-  both very fresh and highly scored can overturn roughly 4×. Found by dogfooding: a query about the
-  PowerShell hook returned two same-day `fix:` commits with nothing to do with it at ranks 3 and 4,
-  while the section that actually answered the question sat at rank 6. Gets worse on days with a lot
-  of commits, which are exactly the days you have most to remember.
+- **The size of the prior budget is a judgement call, not a measured optimum.** Priors are now
+  bounded jointly rather than one at a time, which closed a real 4× hole (see the ranking section),
+  but the 2× budget itself has never been tuned against a labelled relevance set — there isn't one.
+  It is a defensible constant, not a result. What is measured is the direction: on four real queries
+  against this repo's own memory, switching to the joint cap moved the section that answered the
+  question up in three of them (the rationale section for "why BM25 before vector search" went from
+  rank 4 to rank 1) and displaced no query's correct top hit.
 
 ## Commands
 

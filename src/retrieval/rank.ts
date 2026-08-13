@@ -47,7 +47,7 @@ const DEFAULT_HALF_LIFE_DAYS = 30;
 const MS_PER_DAY = 86_400_000;
 
 /**
- * How far a *prior* may overturn the *query*.
+ * How far the *priors*, together, may overturn the *query*.
  *
  * `relevance` is the only factor derived from what was asked; `signal` and
  * `recency` are query-independent priors that hold before any query exists.
@@ -58,15 +58,31 @@ const MS_PER_DAY = 86_400_000;
  * from the top-fused doc section (signal .55) on a 44% signal edge against a
  * 15% relevance deficit.
  *
- * Exponents bound that instead of banning it. Each prior is raised to the power
- * that makes its *entire* range worth at most a `MAX_PRIOR_OVERTURN`-fold
- * relevance gap -- solving `span^exponent = MAX_PRIOR_OVERTURN`. Priors still
- * order equally-relevant hits exactly as before (the transform is monotonic);
- * they simply can no longer overturn a large relevance gap.
+ * Exponents bound that instead of banning it. Priors still order
+ * equally-relevant hits exactly as before (the transform is monotonic); they
+ * simply cannot overturn a large relevance gap.
+ *
+ * **The budget is shared, not per-prior.** Capping each prior at
+ * `MAX_PRIOR_OVERTURN` separately caps neither the pair: the score multiplies
+ * them, so two priors each worth 2x are worth 4x together. That is not a corner
+ * case -- it describes every commit made during an active working day, both
+ * fresh and high-signal at once, so the failure concentrated on exactly the days
+ * with the most worth remembering. Found by dogfooding: a query about the
+ * PowerShell hook returned two unrelated same-day `fix:` commits at ranks 3 and
+ * 4 while the section that answered it sat at rank 6.
+ *
+ * So `MAX_PRIOR_OVERTURN` is the budget for all priors *jointly*, split evenly
+ * between them (`sqrt(2)` each), and each prior is then raised to the power that
+ * makes its entire range worth exactly its share -- solving
+ * `span^exponent = PER_PRIOR_OVERTURN`. Adding a third prior re-divides the same
+ * budget rather than enlarging it, which is the property that was missing.
  */
 const MAX_PRIOR_OVERTURN = 2;
-const SIGNAL_EXPONENT = Math.log(MAX_PRIOR_OVERTURN) / Math.log(1 / SIGNAL_FLOOR);
-const RECENCY_EXPONENT = Math.log(MAX_PRIOR_OVERTURN) / Math.log(1 / RECENCY_FLOOR);
+/** signal and recency. Update when a query-independent factor joins the score. */
+const PRIOR_COUNT = 2;
+const PER_PRIOR_OVERTURN = MAX_PRIOR_OVERTURN ** (1 / PRIOR_COUNT);
+const SIGNAL_EXPONENT = Math.log(PER_PRIOR_OVERTURN) / Math.log(1 / SIGNAL_FLOOR);
+const RECENCY_EXPONENT = Math.log(PER_PRIOR_OVERTURN) / Math.log(1 / RECENCY_FLOOR);
 
 /**
  * bm25() in SQLite is a *cost*: smaller (more negative) is a better match.

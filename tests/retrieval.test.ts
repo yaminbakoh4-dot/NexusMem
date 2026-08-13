@@ -67,45 +67,87 @@ describe('rankHits', () => {
 });
 
 /**
- * The priors (signal, recency) are bounded relative to relevance: across their
- * whole range they may overturn at most a 2x relevance gap. These pin that
- * boundary from both sides, so a future weight change cannot quietly move it.
+ * The priors (signal, recency) are bounded relative to relevance: *together*,
+ * across their whole range, they may overturn at most a 2x relevance gap, and
+ * each one alone at most sqrt(2). These pin both boundaries from both sides, so
+ * a future weight change cannot quietly move them.
  *
  * `relevanceScores` is used rather than bm25 `rank` because it is the only way
  * to place a hit at a *chosen* relevance: both paths min-max rescale into
- * [0.15, 1], so with two hits the gap is always maximal. The third hit anchors
- * the bottom of that rescale.
+ * [0.15, 1], so with two hits the gap is always maximal. The extra anchor hit
+ * pins the bottom of that rescale.
  */
 describe('rankHits — prior vs relevance balance', () => {
   const AT_NOW = NOW.toISOString();
+  /** Old enough that 2**(-age/halfLife) is ~0 and recencyFactor sits on its floor. */
+  const AT_FLOOR = new Date(NOW.getTime() - 3000 * 86_400_000).toISOString();
 
   /** Build hits whose post-normalization relevance lands on `targets`. */
-  function withRelevance(targets: Array<{ id: string; relevance: number; signal: number }>) {
+  function withRelevance(targets: Array<{ id: string; relevance: number; signal: number; ts?: string }>) {
     const scores = new Map<string, number>();
     for (const t of targets) scores.set(t.id, (t.relevance - 0.15) / 0.85);
     scores.set('_anchor', 0); // pins min so the rescale is the identity above
 
     const hits = [
-      ...targets.map((t) => hit({ id: t.id, signal: t.signal, ts: AT_NOW })),
+      ...targets.map((t) => hit({ id: t.id, signal: t.signal, ts: t.ts ?? AT_NOW })),
       hit({ id: '_anchor', signal: 0.5, ts: AT_NOW }),
     ];
-    return rankHits(hits, { now: NOW, relevanceScores: scores });
+    return rankHits(hits, { now: NOW, halfLifeDays: 30, relevanceScores: scores });
   }
 
-  it('lets max signal overturn a relevance gap below 2x', () => {
+  it('lets max signal overturn a relevance gap below sqrt(2)', () => {
     const ranked = withRelevance([
       { id: 'relevant', relevance: 1.0, signal: 0 }, // signalWeight 0.2 (worst)
-      { id: 'important', relevance: 0.6, signal: 1 }, // signalWeight 1.0 (best), gap 1.67x
+      { id: 'important', relevance: 0.75, signal: 1 }, // signalWeight 1.0 (best), gap 1.33x
     ]);
     expect(ranked[0]!.id).toBe('important');
   });
 
-  it('does not let max signal overturn a relevance gap above 2x', () => {
+  it('does not let max signal alone overturn a relevance gap above sqrt(2)', () => {
     const ranked = withRelevance([
       { id: 'relevant', relevance: 1.0, signal: 0 },
-      { id: 'important', relevance: 0.4, signal: 1 }, // gap 2.5x
+      { id: 'important', relevance: 0.6, signal: 1 }, // gap 1.67x
     ]);
     expect(ranked[0]!.id).toBe('relevant');
+  });
+
+  it('lets both priors at once overturn a relevance gap below 2x', () => {
+    // Worst prior pair (no signal, on the recency floor) against the best
+    // (max signal, brand new): the widest swing the two can produce together.
+    const ranked = withRelevance([
+      { id: 'relevant', relevance: 1.0, signal: 0, ts: AT_FLOOR },
+      { id: 'fresh-and-important', relevance: 0.56, signal: 1, ts: AT_NOW }, // gap 1.79x
+    ]);
+    expect(ranked[0]!.id).toBe('fresh-and-important');
+  });
+
+  it('does not let both priors together overturn a relevance gap above 2x', () => {
+    // The cap that matters, and the one that was missing: bounding signal at 2x
+    // and recency at 2x separately left the pair free to overturn 4x, so a node
+    // that was both fresh and high-signal outranked the answer to the question.
+    const ranked = withRelevance([
+      { id: 'relevant', relevance: 1.0, signal: 0, ts: AT_FLOOR },
+      { id: 'fresh-and-important', relevance: 0.4, signal: 1, ts: AT_NOW }, // gap 2.5x
+    ]);
+    expect(ranked[0]!.id).toBe('relevant');
+  });
+
+  it('keeps the answer above a burst of same-day fix commits (the dogfooded regression)', () => {
+    // The observed production case: a query about the PowerShell hook returned
+    // two same-day `fix:` commits at ranks 3 and 4 while the doc section that
+    // answered it sat at rank 6. The doc matched better but was three weeks old
+    // and lower-signal, and the two priors compounded.
+    // The 1.30x relevance gap is chosen, not rounded: this pair of priors is
+    // worth 1.40x jointly under per-prior caps and 1.18x under the joint cap, so
+    // only a gap between those two numbers tells the versions apart. At 1.30x
+    // both commits outranked the doc before the fix.
+    const threeWeeksOld = new Date(NOW.getTime() - 21 * 86_400_000).toISOString();
+    const ranked = withRelevance([
+      { id: 'doc', relevance: 1.0, signal: 0.55, ts: threeWeeksOld },
+      { id: 'fix-a', relevance: 0.77, signal: 0.9, ts: AT_NOW },
+      { id: 'fix-b', relevance: 0.75, signal: 0.9, ts: AT_NOW },
+    ]);
+    expect(ranked[0]!.id).toBe('doc');
   });
 
   it('keeps the top-matching doc above a higher-signal commit (the dogfooded regression)', () => {

@@ -42,6 +42,16 @@ the rebuild was 833 nodes in one pass, inside a 9-second sync.
 - **Embeddings carry a provider identity.** Changing the embedding model, or upgrading from a
   release that recorded no identity, drops the vectors and re-embeds rather than ranking across a
   mixture.
+- **Ranking priors now share one budget instead of getting one each.** `signal` and `recency` are
+  query-independent, and each was separately capped at overturning a 2× relevance gap. The score
+  multiplies them, so together they could overturn 4× — which is not a corner case but a description
+  of every commit made during an active working day, fresh and high-signal at once. A query about the
+  PowerShell hook returned two unrelated same-day `fix:` commits at ranks 3 and 4 while the section
+  that answered it sat at rank 6. The 2× budget is now the bound on the priors *jointly*, split
+  between them (`signal^0.215 × recency^0.288`, down from `^0.431` and `^0.576`), and a third prior
+  would re-divide the same budget rather than enlarge it. Measured on four real queries against this
+  repository's memory: the answering section rose in three of them — the rationale for "why BM25
+  before vector search" went from rank 4 to rank 1 — and no query's correct top hit was displaced.
 
 ### Known limitation
 
