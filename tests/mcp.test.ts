@@ -41,7 +41,11 @@ function initGitRepo(dir: string): void {
 }
 
 function buildCli(): void {
-  execFileSync(npmCommand, ['run', 'build'], { cwd: REPO_ROOT, stdio: 'pipe' });
+  execFileSync(npmCommand, ['run', 'build'], {
+    cwd: REPO_ROOT,
+    stdio: 'pipe',
+    shell: process.platform === 'win32',
+  });
 }
 
 function denyFetchPreload(dir: string): string {
