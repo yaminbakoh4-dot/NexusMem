@@ -9,6 +9,20 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
 
 ## [Unreleased]
 
+### Fixed
+
+- **A generic 2-3 letter local model title, "id" as a search token, and one node's chunks flooding a
+  result set — three ranking/retrieval edge cases found by dogfooding, each verified with a red test
+  before the fix.**
+  - Session-summary titles: the local model sometimes wrote a role-framing line ("Role: Lead Systems
+    Engineer...") instead of a summary, in Thai and English alike. The existing generic-title filter
+    didn't catch either language, since it only matched English words like "summary"/"update".
+  - Search: the token `id` alone was prefix-matching unrelated shell commands like
+    `winget install --id ...`, because every query token was OR-ed with no floor and no stopword
+    list, and bm25 gives a rare-but-generic token an inflated score purely from scarcity.
+  - Packing: `conversation_turn` and `doc_section` both chunk one reply or file into several nodes
+    sharing the same timestamp; up to 2 may now appear in one packed result, down from unlimited.
+
 ## [0.3.0] — 2026-08-13
 
 **Upgrade note.** The first `sync` after upgrading drops every stored embedding and rebuilds it.

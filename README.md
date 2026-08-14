@@ -241,6 +241,11 @@ optimizing, and it is somebody else's process.
   unmounted drive is not a deleted project.
 - **Conversation chunking is unevaluated.** Splitting long replies at heading boundaries measurably
   helped, but it has never been tested systematically.
+- **A chunked node's sibling count in one result is capped, not tuned.** `conversation_turn` and
+  `doc_section` both split one reply or file into several nodes; at most 2 of them may appear
+  together in a packed result. Found live: a query for "token" returned 9 of its top 12 hits as
+  different pieces of one heavily-sectioned reply, crowding out the node that actually answered it.
+  The cap of 2 is a judgement call, not a measured optimum, same as the ranking priors' budget above.
 - **The size of the prior budget is a judgement call, not a measured optimum.** Priors are now
   bounded jointly rather than one at a time, which closed a real 4× hole (see the ranking section),
   but the 2× budget itself has never been tuned against a labelled relevance set — there isn't one.

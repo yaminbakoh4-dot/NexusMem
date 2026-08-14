@@ -96,6 +96,7 @@ export async function runQuery(opts: QueryOptions): Promise<number> {
             tokensUsed: packed.tokensUsed,
             tokensBudget: packed.tokensBudget,
             droppedForBudget: packed.droppedForBudget,
+            droppedForDiversity: packed.droppedForDiversity,
           },
           null,
           2,
@@ -113,7 +114,8 @@ export async function runQuery(opts: QueryOptions): Promise<number> {
       [
         `${pc.dim('matched')} ${bm25Count} bm25${vectorCount > 0 ? ` + ${vectorCount} vector` : ''}, packed ${pc.bold(String(packed.nodes.length))} into budget`,
         `${pc.dim('tokens ')} ${packed.tokensUsed}/${packed.tokensBudget}` +
-          (packed.droppedForBudget ? pc.dim(`  (${packed.droppedForBudget} dropped for budget)`) : ''),
+          (packed.droppedForBudget ? pc.dim(`  (${packed.droppedForBudget} dropped for budget)`) : '') +
+          (packed.droppedForDiversity ? pc.dim(`  (${packed.droppedForDiversity} dropped for diversity)`) : ''),
         rawTokens > 0
           ? `${pc.dim('vs raw ')} ${rawTokens} tokens if these same matches were sent unpacked  ${packerEfficiency >= 0 ? pc.green(`(${(packerEfficiency * 100).toFixed(0)}% packer efficiency)`) : pc.yellow(`(${(-packerEfficiency * 100).toFixed(0)}% larger -- overhead dominates on small result sets)`)}`
           : '',

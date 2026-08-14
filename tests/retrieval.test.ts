@@ -226,6 +226,60 @@ describe('packContext', () => {
     expect(result.nodes[0]!.summary).toBe('Because zeroing any factor would let it veto the others.');
     expect(result.nodes[0]!.summary).not.toContain('floors on ranking factor score');
   });
+
+  // conversation_turn and doc_section both chunk one long reply/file into
+  // several nodes that share the *same* ts (collectors/conversation.ts,
+  // collectors/docs.ts) -- verified live: a query for "token" returned 9 of
+  // its top 12 hits as different chunks of one heavily-sectioned reply,
+  // crowding out every other node.
+  it('caps how many chunks of the same original document appear together', () => {
+    const family = Array.from({ length: 5 }, (_, i) =>
+      ranked({
+        id: `chunk${i}`,
+        kind: 'conversation_turn',
+        ts: '2026-08-08T06:24:32.086Z',
+        score: 0.9 - i * 0.01,
+        title: `part ${i}`,
+        body: `text ${i}`,
+      }),
+    );
+    const other = ranked({
+      id: 'other',
+      kind: 'git_commit',
+      ts: '2026-08-01T00:00:00Z',
+      score: 0.5,
+      title: 'fix: something else',
+      body: 'unrelated',
+    });
+
+    const result = packContext([...family, other], 5000);
+
+    // Top 2 by score, not all 5 -- the point of the cap.
+    expect(result.nodes.filter((n) => n.id.startsWith('chunk')).map((n) => n.id)).toEqual(['chunk0', 'chunk1']);
+    expect(result.nodes.map((n) => n.id)).toContain('other');
+    expect(result.droppedForDiversity).toBe(3);
+  });
+
+  it('does not cap kinds that are never chunked, even if their timestamps happen to collide', () => {
+    const hits = Array.from({ length: 4 }, (_, i) =>
+      ranked({ id: `commit${i}`, kind: 'git_commit', ts: '2026-08-08T00:00:00Z', score: 0.9 - i * 0.01 }),
+    );
+    const result = packContext(hits, 5000);
+    expect(result.nodes).toHaveLength(4);
+    expect(result.droppedForDiversity).toBe(0);
+  });
+
+  it('lets a budget-skipped chunk free its family slot for a later sibling', () => {
+    // 'big' is highest score but does not fit; the cap must not have already
+    // spent a family slot on it, or 'small2' would be wrongly excluded too.
+    const hits = [
+      ranked({ id: 'big', kind: 'conversation_turn', ts: 'T', score: 0.9, body: 'y'.repeat(4000) }),
+      ranked({ id: 'small1', kind: 'conversation_turn', ts: 'T', score: 0.8, body: 'tiny' }),
+      ranked({ id: 'small2', kind: 'conversation_turn', ts: 'T', score: 0.7, body: 'tiny' }),
+    ];
+    const result = packContext(hits, 50);
+    expect(result.nodes.map((n) => n.id)).toEqual(['small1', 'small2']);
+  });
 });
 
 describe('renderContextBlock', () => {
@@ -300,5 +354,49 @@ describe('retrieval integration (store -> rank -> pack)', () => {
     const rawChars = hits.reduce((n, h) => n + h.body.length, 0);
     const packedChars = packed.nodes.reduce((n, x) => n + x.summary.length + x.title.length, 0);
     expect(packedChars).toBeLessThanOrEqual(rawChars);
+  });
+
+  it('does not let one heavily-chunked node dominate the packed context for a generic query', () => {
+    const chunkedNode = (overrides: Partial<MemoryNode> & Pick<MemoryNode, 'id'>): MemoryNode => ({
+      kind: 'git_commit',
+      projectId: PROJECT,
+      ts: '2026-08-01T00:00:00Z',
+      source: 'git',
+      title: 'feat: something',
+      body: 'feat: something',
+      files: [],
+      signal: 0.5,
+      meta: {},
+      ...overrides,
+    });
+
+    const sharedTs = '2026-08-08T06:24:32.086Z';
+    const chunkNodes = Array.from({ length: 5 }, (_, i) =>
+      chunkedNode({
+        id: `chunk-${i}`,
+        kind: 'conversation_turn',
+        source: 'claude-code',
+        ts: sharedTs,
+        title: `Token savings conclusion (part ${i + 1}/5)`,
+        body: `Q: what did we conclude about token\n\nA: token savings analysis, part ${i}`,
+        signal: 0.6,
+      }),
+    );
+    const realNode = chunkedNode({
+      id: 'real',
+      title: 'token-facebook-villa.txt holds the page access token',
+      body: 'token-facebook-villa.txt holds the page access token\n\nRotate it if the webhook starts failing.',
+      signal: 0.6,
+    });
+
+    store.upsertNodes([...chunkNodes, realNode]);
+
+    const hits = store.search(PROJECT, 'token');
+    const r = rankHits(hits, { now: NOW });
+    const packed = packContext(r, 2000);
+
+    const chunkCount = packed.nodes.filter((n) => n.id.startsWith('chunk-')).length;
+    expect(chunkCount).toBeLessThanOrEqual(2);
+    expect(packed.nodes.map((n) => n.id)).toContain('real');
   });
 });

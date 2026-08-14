@@ -20,6 +20,7 @@ export interface PackResult {
   tokensBudget: number;
   consideredNodes: number;
   droppedForBudget: number;
+  droppedForDiversity: number;
 }
 
 const DEFAULT_SUMMARY_CHARS = 320;
@@ -27,6 +28,25 @@ const DEFAULT_SUMMARY_CHARS = 320;
 const NODE_OVERHEAD_TOKENS = 8;
 
 const CONVERSATION_ANSWER_MARKER = '\n\nA: ';
+
+/**
+ * At most this many hits from the same original document may appear in one
+ * packed result.
+ *
+ * `conversation_turn` and `doc_section` both chunk one long reply or file
+ * into several nodes that share the *same* `ts` (see
+ * `collectors/conversation.ts` and `collectors/docs.ts`) -- there is no
+ * per-chunk parent id available at this layer, but the shared timestamp
+ * already identifies "pieces of the same original text" in practice, since
+ * two unrelated exchanges or files are never indexed in the same
+ * millisecond. Verified live: a query for "token" returned 9 of its top 12
+ * hits as different chunks of one heavily-sectioned conversation reply,
+ * crowding out every other node -- including the actually relevant one.
+ * Kept at 2 rather than 1 so a reply that is genuinely relevant in two
+ * places still shows both, without letting either dominate.
+ */
+const MAX_PER_FAMILY = 2;
+const CHUNKED_KINDS = new Set(['conversation_turn', 'doc_section']);
 
 /** Start of a hunk, at the beginning of a line. */
 const HUNK_BOUNDARY = '\n@@ ';
@@ -193,8 +213,16 @@ export function packContext(
   const nodes: PackedNode[] = [];
   let tokensUsed = 0;
   let droppedForBudget = 0;
+  let droppedForDiversity = 0;
+  const familyCounts = new Map<string, number>();
 
   for (const hit of ranked) {
+    const familyKey = CHUNKED_KINDS.has(hit.kind) ? `${hit.kind}:${hit.ts}` : null;
+    if (familyKey && (familyCounts.get(familyKey) ?? 0) >= MAX_PER_FAMILY) {
+      droppedForDiversity += 1;
+      continue;
+    }
+
     const summary = summarize(hit, summaryChars, query);
     const tokens = approxTokens(hit.title) + approxTokens(summary) + NODE_OVERHEAD_TOKENS;
 
@@ -215,9 +243,12 @@ export function packContext(
       ...(hit.project ? { project: hit.project } : {}),
     });
     tokensUsed += tokens;
+    // Only a hit that actually made it in spends its family's slot -- one
+    // skipped for budget must not block a smaller sibling later in the list.
+    if (familyKey) familyCounts.set(familyKey, (familyCounts.get(familyKey) ?? 0) + 1);
   }
 
-  return { nodes, tokensUsed, tokensBudget, consideredNodes: ranked.length, droppedForBudget };
+  return { nodes, tokensUsed, tokensBudget, consideredNodes: ranked.length, droppedForBudget, droppedForDiversity };
 }
 
 /** Render a packed result as plain text, ready to paste into an agent's context. */
