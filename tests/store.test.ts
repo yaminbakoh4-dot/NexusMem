@@ -177,6 +177,20 @@ describe('MemoryStore.search', () => {
     }
   });
 
+  it('does not let the generic word "id" pull in an unrelated node over a real match', () => {
+    // Reproduces a live finding: "id" alone prefix-matched "--id" in an
+    // unrelated shell command, ranking it inside the results for a query
+    // that was actually about a Facebook webhook's sender id.
+    store.upsertNodes([
+      node({ id: 'noise', kind: 'shell_command', source: 'shell:pwsh', title: 'winget install --id 9PFHDD62MXS1' }),
+      node({ id: 'real', title: 'Log the identifiers the automation webhook actually receives' }),
+    ]);
+
+    const hits = store.search(PROJECT, 'Facebook Page inbox webhook PSID sender id');
+    expect(hits.map((h) => h.id)).not.toContain('noise');
+    expect(hits[0]?.id).toBe('real');
+  });
+
   it('reflects updates in the index', () => {
     store.upsertNodes([node({ id: 'wal', title: 'fix(store): totally rewritten', body: 'kangaroo' })]);
     expect(store.search(PROJECT, 'kangaroo').map((h) => h.id)).toEqual(['wal']);
@@ -201,5 +215,14 @@ describe('toMatchQuery', () => {
   it('returns null when nothing searchable is left', () => {
     expect(toMatchQuery('   ')).toBeNull();
     expect(toMatchQuery('*(){}')).toBeNull();
+  });
+
+  it('drops the generic token "id" when other signal survives', () => {
+    expect(toMatchQuery('sender id')).toBe('"sender"*');
+    expect(toMatchQuery('sender ID')).toBe('"sender"*');
+  });
+
+  it('keeps "id" when it is the only token, rather than matching nothing', () => {
+    expect(toMatchQuery('id')).toBe('"id"*');
   });
 });
