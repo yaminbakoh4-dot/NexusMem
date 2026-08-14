@@ -191,6 +191,41 @@ describe('parseSummary', () => {
     const parsed = parseSummary('TITLE: Summarized sessions with a local model\n- Did a thing.', FALLBACK);
     expect(parsed!.title).toBe('Summarized sessions with a local model');
   });
+
+  // Two titles a 3B model actually produced live, verified against the real DB
+  // to confirm they are the model's own TITLE: line, not the human's opening
+  // question leaking through sessionFallbackTitle: neither string appears
+  // anywhere in the project's conversation_turn transcripts. The model wrote a
+  // role/persona framing instead of naming what happened in the session.
+  it('rejects a role-preamble title the model wrote instead of a summary (Thai)', () => {
+    const parsed = parseSummary('TITLE: บทบาท: Lead Systems Engineer ประจำโปรเจกต์ NexusMem\n- Did a thing.', FALLBACK);
+    expect(parsed!.title).toBe(FALLBACK);
+  });
+
+  it('rejects a "you are" role-preamble title the model wrote instead of a summary (Thai)', () => {
+    const parsed = parseSummary(
+      'TITLE: คุณกำลังทำหน้าที่เป็นผู้ทดสอบ NexusMem ซึ่งเป็นระบบ Persistent Development Memory ที่เชื่อมต่อกับ coding agent ผ่าน MCP\n- Did a thing.',
+      FALLBACK,
+    );
+    expect(parsed!.title).toBe(FALLBACK);
+  });
+
+  it('rejects the same role-preamble shapes in English, since the model does not reliably obey "answer in English" either', () => {
+    expect(parseSummary('TITLE: Role: Lead Backend Engineer for the API team\n- Did a thing.', FALLBACK)!.title).toBe(FALLBACK);
+    expect(parseSummary('TITLE: You are acting as a senior reviewer for this repo\n- Did a thing.', FALLBACK)!.title).toBe(
+      FALLBACK,
+    );
+  });
+
+  it('keeps a specific Thai title that merely starts with the same syllables as a role pronoun', () => {
+    // "คุณภาพ" (quality) starts with "คุณ" (you) but is a different word entirely --
+    // a real title from this project's own history, kept as an anti-false-positive anchor.
+    const parsed = parseSummary('TITLE: เอาภาษาไทยออกจาก repo ให้หมด\n- Did a thing.', FALLBACK);
+    expect(parsed!.title).toBe('เอาภาษาไทยออกจาก repo ให้หมด');
+
+    const quality = parseSummary('TITLE: คุณภาพโค้ดหลังรีแฟคเตอร์ rank.ts\n- Did a thing.', FALLBACK);
+    expect(quality!.title).toBe('คุณภาพโค้ดหลังรีแฟคเตอร์ rank.ts');
+  });
 });
 
 describe('sessionFallbackTitle', () => {

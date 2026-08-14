@@ -182,6 +182,24 @@ const MAX_TITLE_CHARS = 200;
 const GENERIC_TITLE = /^(a |the )?(session |conversation |project |work )?(summary|update|overview|recap|status)\b/i;
 
 /**
+ * Titles where the model describes the role it was asked to play instead of
+ * naming what happened -- "Role: Lead Systems Engineer for NexusMem" tells a
+ * future reader nothing a `GENERIC_TITLE` check would catch, because it names
+ * no summary-ish word at all.
+ *
+ * Bilingual on purpose, not Thai-only: `SESSION_INSTRUCTIONS` asks for
+ * English, but the 3B model does not reliably comply (that is also why Thai
+ * titles exist in the index at all), so an English-only guard would still
+ * miss the same shape in English. Anchored at the start and matched against
+ * multi-character Thai words rather than single letters, so a compound word
+ * that happens to start with the same syllables -- "คุณภาพ" (quality) begins
+ * with "คุณ" (you) -- is not caught; see the test suite's anti-false-positive
+ * case using a real title from this project's own history.
+ */
+const ROLE_PREAMBLE_TITLE =
+  /^(role\s*[:：]|you\s*(?:'re|are)\s+(acting as|serving as|playing the role of|a\b)|i\s*(?:'m|am)\s+(acting as|a\b)|acting as\b|บทบาท\s*[:：]|ในฐานะ|คุณ(กำลัง)?(ทำหน้าที่เป็น|เป็น|รับบทบาทเป็น)|(ผม|ฉัน)(กำลัง)?(ทำหน้าที่เป็น|เป็น))/i;
+
+/**
  * Strip the decoration a small model adds even when told not to.
  * `**Chose X:**` and `- Chose X` both need to become `Chose X`.
  */
@@ -229,7 +247,10 @@ export function parseSummary(raw: string, fallbackTitle: string): ParsedSummary 
     .trim();
 
   return {
-    title: candidate.length > 0 && !GENERIC_TITLE.test(candidate) ? truncate(candidate, MAX_TITLE_CHARS) : fallback,
+    title:
+      candidate.length > 0 && !GENERIC_TITLE.test(candidate) && !ROLE_PREAMBLE_TITLE.test(candidate)
+        ? truncate(candidate, MAX_TITLE_CHARS)
+        : fallback,
     // A model that emitted only a title still gets a usable node: the title
     // doubles as the body rather than storing an empty one.
     body: rest.length > 0 ? rest : candidate,
