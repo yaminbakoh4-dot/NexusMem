@@ -188,9 +188,9 @@ First public release.
   there is no local-model summarization pass, and the conversation collector has never been audited
   for the stale-node bug that was found and fixed in the docs collector.
 
-[Unreleased]: https://github.com/yaminbakoh4-dot/NexusMem/compare/v0.3.0...HEAD
-[0.3.0]: https://github.com/yaminbakoh4-dot/NexusMem/compare/v0.2.0...v0.3.0
-[0.2.0]: https://github.com/yaminbakoh4-dot/NexusMem/compare/v0.1.2...v0.2.0
-[0.1.2]: https://github.com/yaminbakoh4-dot/NexusMem/compare/v0.1.1...v0.1.2
-[0.1.1]: https://github.com/yaminbakoh4-dot/NexusMem/compare/v0.1.0...v0.1.1
-[0.1.0]: https://github.com/yaminbakoh4-dot/NexusMem/releases/tag/v0.1.0
+[Unreleased]: https://github.com/yaminbkk/NexusMem/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/yaminbkk/NexusMem/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/yaminbkk/NexusMem/compare/v0.1.2...v0.2.0
+[0.1.2]: https://github.com/yaminbkk/NexusMem/compare/v0.1.1...v0.1.2
+[0.1.1]: https://github.com/yaminbkk/NexusMem/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/yaminbkk/NexusMem/releases/tag/v0.1.0

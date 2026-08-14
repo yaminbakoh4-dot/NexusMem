@@ -5,11 +5,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/yaminbakoh4-dot/NexusMem.git"
+    "url": "git+https://github.com/yaminbkk/NexusMem.git"
   },
-  "homepage": "https://github.com/yaminbakoh4-dot/NexusMem#readme",
+  "homepage": "https://github.com/yaminbkk/NexusMem#readme",
   "bugs": {
-    "url": "https://github.com/yaminbakoh4-dot/NexusMem/issues"
+    "url": "https://github.com/yaminbkk/NexusMem/issues"
   },
   "type": "module",
   "engines": {
