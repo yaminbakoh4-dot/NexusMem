@@ -1,14 +1,27 @@
+import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createServer } from '../src/mcp/server.js';
 import { getStatus, searchMemory, syncProject } from '../src/mcp/tools.js';
 import { MemoryStore } from '../src/store/store.js';
 import { makeProjectId } from '../src/core/project.js';
 import { gitFixture } from './helpers.js';
+
+const REPO_ROOT = dirname(fileURLToPath(new URL('../package.json', import.meta.url)));
+const BUILT_CLI = fileURLToPath(new URL('../dist/cli/index.js', import.meta.url));
+const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+
+interface ToolTextResult {
+  content: Array<{ type: string; text: string }>;
+  structuredContent?: Record<string, unknown>;
+  isError?: boolean;
+}
 
 /**
  * These exercise the MCP tool handlers directly (as plain async functions),
@@ -25,6 +38,73 @@ function initGitRepo(dir: string): void {
   writeFileSync(join(dir, 'a.txt'), 'hello\n');
   g('add', '.');
   g('commit', '-q', '-m', 'fix: handle the retry timeout correctly\n\nThe old code retried forever instead of giving up after N attempts.');
+}
+
+function buildCli(): void {
+  execFileSync(npmCommand, ['run', 'build'], { cwd: REPO_ROOT, stdio: 'pipe' });
+}
+
+function denyFetchPreload(dir: string): string {
+  const path = join(dir, 'deny-fetch.mjs');
+  writeFileSync(
+    path,
+    [
+      'globalThis.fetch = async (input) => {',
+      '  const target = typeof input === "string" ? input : input?.url ?? String(input);',
+      '  throw new Error(`unexpected network access in stdio MCP test: ${target}`);',
+      '};',
+      '',
+    ].join('\n'),
+  );
+  return path;
+}
+
+async function flushTransportEvents(): Promise<void> {
+  await new Promise<void>((resolve) => setImmediate(resolve));
+}
+
+async function connectStdioClient(repoDir: string, preloadPath: string): Promise<{
+  client: Client;
+  close: () => Promise<void>;
+  protocolErrors: Error[];
+  stderr: () => string;
+}> {
+  const protocolErrors: Error[] = [];
+  let stderr = '';
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [BUILT_CLI, 'mcp'],
+    cwd: repoDir,
+    stderr: 'pipe',
+    env: {
+      NEXUSMEM_HOME: join(repoDir, '.test-home'),
+      NODE_OPTIONS: `--import=${pathToFileURL(preloadPath).href}`,
+    },
+  });
+
+  transport.onerror = (error) => {
+    protocolErrors.push(error);
+  };
+  transport.stderr?.on('data', (chunk: Buffer) => {
+    stderr += chunk.toString();
+  });
+
+  const client = new Client({ name: 'stdio-e2e-test', version: '0.0.0' });
+  client.onerror = (error) => {
+    protocolErrors.push(error);
+  };
+
+  await client.connect(transport, { timeout: 10_000 });
+  await flushTransportEvents();
+
+  return {
+    client,
+    protocolErrors,
+    stderr: () => stderr,
+    close: async () => {
+      await client.close();
+    },
+  };
 }
 
 describe('mcp tools', () => {
@@ -221,6 +301,84 @@ describe('mcp server result shaping (protocol round trip)', () => {
     } finally {
       await client.close();
       await server.close();
+    }
+  });
+});
+
+describe('mcp server over real stdio child process', () => {
+  let repoDir: string;
+  let preloadPath: string;
+
+  beforeAll(() => {
+    buildCli();
+  });
+
+  beforeEach(() => {
+    repoDir = mkdtempSync(join(tmpdir(), 'nexusmem-mcp-stdio-'));
+    initGitRepo(repoDir);
+    preloadPath = denyFetchPreload(repoDir);
+  });
+
+  afterEach(() => {
+    rmSync(repoDir, { recursive: true, force: true });
+  });
+
+  it('initializes the built CLI over stdio and calls get_status and search_memory', async () => {
+    const session = await connectStdioClient(repoDir, preloadPath);
+
+    try {
+      expect(session.protocolErrors).toEqual([]);
+      expect(session.client.getServerVersion()?.name).toBe('nexusmem');
+
+      const syncResult = (await session.client.callTool(
+        { name: 'sync_project', arguments: { projectRoot: repoDir } },
+        undefined,
+        { timeout: 15_000 },
+      )) as ToolTextResult;
+      await flushTransportEvents();
+
+      expect(syncResult.isError).toBeFalsy();
+      expect(syncResult.content[0]?.type).toBe('text');
+      expect(syncResult.content[0]?.text).toContain('synced');
+      expect(session.protocolErrors, session.stderr()).toEqual([]);
+
+      const statusResult = (await session.client.callTool(
+        { name: 'get_status', arguments: { projectRoot: repoDir } },
+        undefined,
+        { timeout: 10_000 },
+      )) as ToolTextResult;
+      await flushTransportEvents();
+
+      const status = statusResult.structuredContent as
+        | { total?: number; byKind?: Record<string, number> }
+        | undefined;
+      expect(statusResult.isError).toBeFalsy();
+      expect(status?.total).toBeGreaterThanOrEqual(1);
+      expect(status?.byKind?.git_commit).toBe(1);
+      expect(session.protocolErrors, session.stderr()).toEqual([]);
+
+      const searchResult = (await session.client.callTool(
+        {
+          name: 'search_memory',
+          arguments: { projectRoot: repoDir, query: 'retry timeout', budget: 800 },
+        },
+        undefined,
+        { timeout: 10_000 },
+      )) as ToolTextResult;
+      await flushTransportEvents();
+
+      const search = searchResult.structuredContent as
+        | { text?: string; bm25Matched?: number; vectorMatched?: number }
+        | undefined;
+      expect(searchResult.isError).toBeFalsy();
+      expect(searchResult.content[0]?.type).toBe('text');
+      expect(searchResult.content[0]?.text).toContain('retry timeout');
+      expect(search?.text).toBe(searchResult.content[0]?.text);
+      expect(search?.bm25Matched).toBeGreaterThan(0);
+      expect(search?.vectorMatched).toBe(0);
+      expect(session.protocolErrors, session.stderr()).toEqual([]);
+    } finally {
+      await session.close();
     }
   });
 });
