@@ -3,6 +3,7 @@
   "displayName": "NexusMem",
   "description": "Search a NexusMem-tracked repository's remembered history (git, diffs, shell, docs, conversations) from the command palette, a sidebar of what's been remembered lately, an in-editor sync command, and a proactive check when a terminal command fails.",
   "version": "0.0.1",
+  "icon": "icon.png",
   "license": "MIT",
   "repository": {
     "type": "git",
