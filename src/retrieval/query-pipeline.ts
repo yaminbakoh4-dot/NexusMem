@@ -1,8 +1,65 @@
+import { RESOLVED_BY_RETRY } from '../correlate/failure-fix.js';
 import type { MemoryStore, SearchHit, VectorHit } from '../store/store.js';
 import type { EmbeddingProvider } from '../vector/embed.js';
 import { mergeSearchAndVectorHits, reciprocalRankFusion } from './fuse.js';
 import { packContext, type PackResult } from './pack.js';
-import { rankHits } from './rank.js';
+import { rankHits, type RankedHit } from './rank.js';
+
+/**
+ * Pull a `shell_command` failure's linked resolution (`RESOLVED_BY_RETRY`
+ * only -- see `failure-fix.ts`'s doc comment for why the discussion
+ * heuristic stays unsurfaced) into the ranked list, immediately after the
+ * failure, so it survives `packContext`'s budget/diversity cuts alongside it
+ * instead of needing to earn its own place on query relevance alone. That is
+ * the whole point of Phase 7's chain feature: a resolution the query never
+ * mentioned should still ride along with the failure it resolves.
+ *
+ * The pulled-in node inherits its failure's relevance/signalWeight/
+ * recencyFactor/score wholesale rather than computing its own: it has no
+ * independent relevance to this query, and is included *because* it resolves
+ * a hit that already matched, not because it matched on its own. A
+ * resolution already present in `ranked` on its own merits is left
+ * untouched, never duplicated.
+ *
+ * Single-project only for now -- `runCrossProjectQuery` merges hits from
+ * several stores into one list, and a hit's originating store isn't
+ * threaded through packContext's input shape yet. Not extended here;
+ * cross-project chain-following is a known gap, not a silent omission.
+ */
+function pullLinkedResolutions(store: MemoryStore, ranked: readonly RankedHit[]): RankedHit[] {
+  const present = new Set(ranked.map((hit) => hit.id));
+  const withLinks: RankedHit[] = [];
+
+  for (const hit of ranked) {
+    withLinks.push(hit);
+    if (hit.kind !== 'shell_command') continue;
+
+    for (const linkedId of store.getLinkedNodeIds(hit.id, RESOLVED_BY_RETRY)) {
+      if (present.has(linkedId)) continue;
+      const [resolution] = store.getNodesByIds([linkedId]);
+      if (!resolution) continue;
+
+      present.add(linkedId);
+      withLinks.push({
+        id: resolution.id,
+        kind: resolution.kind,
+        ts: resolution.ts,
+        title: resolution.title,
+        body: resolution.body,
+        signal: resolution.signal,
+        rank: 0, // no bm25/vector rank of its own -- never read again past this point
+        relevance: hit.relevance,
+        signalWeight: hit.signalWeight,
+        recencyFactor: hit.recencyFactor,
+        ageDays: hit.ageDays,
+        score: hit.score,
+        ...(hit.project ? { project: hit.project } : {}),
+      });
+    }
+  }
+
+  return withLinks;
+}
 
 export interface HybridQueryOptions {
   budget: number;
@@ -118,7 +175,7 @@ export async function runHybridQuery(
   const hits = vectorHits.length > 0 ? mergeSearchAndVectorHits(bm25Hits, vectorHits) : bm25Hits;
   const relevanceScores = vectorHits.length > 0 ? reciprocalRankFusion([bm25Hits, vectorHits]) : undefined;
 
-  const ranked = rankHits(hits, { halfLifeDays: opts.halfLifeDays, relevanceScores });
+  const ranked = pullLinkedResolutions(store, rankHits(hits, { halfLifeDays: opts.halfLifeDays, relevanceScores }));
   // The query reaches the packer as well as the searcher: for a diff node it
   // decides which hunk of an already-retrieved patch is worth the budget.
   const packed = packContext(ranked, opts.budget, { query });
