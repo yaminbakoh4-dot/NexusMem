@@ -4,9 +4,10 @@ Search a [NexusMem](https://github.com/yaminbkk/NexusMem)-tracked repository's r
 git commits, code diffs, shell commands (with exit codes), tracked docs and (if enabled) conversation
 transcripts — from the command palette, without leaving the editor.
 
-This is an early, minimal surface: one command, one read-only results panel. It talks to the same
-MCP server ([`nexusmem mcp`](../README.md)) that Claude Desktop, Cursor and Windsurf already use against
-this codebase — no new server-side surface, just a client for the existing one.
+This is an early, minimal surface: a search command, a read-only results panel, and a sidebar list of
+what's been remembered lately. It talks to the same MCP server ([`nexusmem mcp`](../README.md)) that
+Claude Desktop, Cursor and Windsurf already use against this codebase — no new server-side surface,
+just a client for the existing one (plus one new tool, `list_recent_memory`, for the sidebar).
 
 ## Requirements
 
@@ -26,6 +27,13 @@ this codebase — no new server-side surface, just a client for the existing one
 3. Type a free-text query (e.g. `why did npm whoami fail`). Results open in a panel beside the editor:
    the packed, token-budgeted context block NexusMem would hand an agent, plus match/token stats.
 
+### Recent Memory sidebar
+
+The Explorer view (`Ctrl+Shift+E` / `Cmd+Shift+E`) gains a **NexusMem: Recent Memory** panel: the most
+recently remembered items for the open repository, newest first — chronology, not a search. Click a
+row to search for it (pre-fills the query above with that item's title). Refresh with the ↻ button in
+the panel's title bar; it also loads once automatically when the extension activates.
+
 ## Settings
 
 | Setting | Default | Description |
@@ -34,9 +42,8 @@ this codebase — no new server-side surface, just a client for the existing one
 
 ## Not yet built
 
-This MVP is query-only. Not in scope yet, tracked for later: a sidebar view of recent memory, live
-terminal-failure detection surfacing "you've hit this before," and a command to trigger `sync_project`
-from within the editor.
+Not in scope yet, tracked for later: live terminal-failure detection surfacing "you've hit this
+before," and a command to trigger `sync_project` from within the editor.
 
 ## Development
 

@@ -1,7 +1,7 @@
 {
   "name": "nexusmem-vscode",
   "displayName": "NexusMem",
-  "description": "Search a NexusMem-tracked repository's remembered history (git, diffs, shell, docs, conversations) from the command palette.",
+  "description": "Search a NexusMem-tracked repository's remembered history (git, diffs, shell, docs, conversations) from the command palette, plus a sidebar of what's been remembered lately.",
   "version": "0.0.1",
   "license": "MIT",
   "repository": {
