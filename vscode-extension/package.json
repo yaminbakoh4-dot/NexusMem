@@ -1,0 +1,58 @@
+{
+  "name": "nexusmem-vscode",
+  "displayName": "NexusMem",
+  "description": "Search a NexusMem-tracked repository's remembered history (git, diffs, shell, docs, conversations) from the command palette.",
+  "version": "0.0.1",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yaminbkk/NexusMem.git",
+    "directory": "vscode-extension"
+  },
+  "publisher": "yaminbkk",
+  "engines": {
+    "vscode": "^1.90.0",
+    "node": ">=22"
+  },
+  "categories": ["Other"],
+  "keywords": ["nexusmem", "memory", "mcp", "search"],
+  "main": "./dist/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "commands": [
+      {
+        "command": "nexusmem.searchMemory",
+        "title": "NexusMem: Search Memory"
+      }
+    ],
+    "configuration": {
+      "title": "NexusMem",
+      "properties": {
+        "nexusmem.cliPath": {
+          "type": "string",
+          "default": "nexusmem",
+          "description": "Executable used to launch NexusMem's MCP server (`<cliPath> mcp`). Defaults to the globally installed `nexusmem` binary (`npm install -g nexusmem`). Set to an absolute path to use a different build."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "pretest": "npm run typecheck",
+    "vscode:prepublish": "npm run compile"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/vscode": "^1.90.0",
+    "esbuild": "^0.28.1",
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0"
+  }
+}
