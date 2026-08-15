@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { correlateFailures, RESOLVED_BY } from '../src/correlate/failure-fix.js';
+import { correlateFailures, RESOLVED_BY_DISCUSSION, RESOLVED_BY_RETRY } from '../src/correlate/failure-fix.js';
 import type { MemoryNode } from '../src/core/types.js';
 import { MemoryStore } from '../src/store/store.js';
 
@@ -71,7 +71,7 @@ describe('correlateFailures', () => {
     const stats = correlateFailures(store, PROJECT);
 
     expect(stats).toEqual({ failuresExamined: 1, linkedByRetry: 1, linkedByDiscussion: 0 });
-    expect(store.getLinkedNodeIds('fail', RESOLVED_BY)).toEqual(['retry']);
+    expect(store.getLinkedNodeIds('fail', RESOLVED_BY_RETRY)).toEqual(['retry']);
   });
 
   it('does not link a retry outside the configured retry window', () => {
@@ -83,7 +83,7 @@ describe('correlateFailures', () => {
     const stats = correlateFailures(store, PROJECT, { retryWindowMs: HOUR }); // discriminating: window shorter than the gap
 
     expect(stats.linkedByRetry).toBe(0);
-    expect(store.getLinkedNodeIds('fail', RESOLVED_BY)).toEqual([]);
+    expect(store.getLinkedNodeIds('fail', RESOLVED_BY_RETRY)).toEqual([]);
   });
 
   it('does not link a successful retry run in a different working directory', () => {
@@ -94,7 +94,7 @@ describe('correlateFailures', () => {
 
     correlateFailures(store, PROJECT);
 
-    expect(store.getLinkedNodeIds('fail', RESOLVED_BY)).toEqual([]); // discriminating: same command, wrong cwd
+    expect(store.getLinkedNodeIds('fail', RESOLVED_BY_RETRY)).toEqual([]); // discriminating: same command, wrong cwd
   });
 
   it('does not link a textually different command, even a near-duplicate (exact match only, by design)', () => {
@@ -105,7 +105,7 @@ describe('correlateFailures', () => {
 
     correlateFailures(store, PROJECT);
 
-    expect(store.getLinkedNodeIds('fail', RESOLVED_BY)).toEqual([]);
+    expect(store.getLinkedNodeIds('fail', RESOLVED_BY_RETRY)).toEqual([]);
   });
 
   it('links a failure to a later conversation that discusses it', () => {
@@ -117,7 +117,7 @@ describe('correlateFailures', () => {
     const stats = correlateFailures(store, PROJECT);
 
     expect(stats.linkedByDiscussion).toBe(1);
-    expect(store.getLinkedNodeIds('fail', RESOLVED_BY)).toEqual(['discussion']);
+    expect(store.getLinkedNodeIds('fail', RESOLVED_BY_DISCUSSION)).toEqual(['discussion']);
   });
 
   it('does not link a discussion outside the configured discussion window', () => {
@@ -128,10 +128,10 @@ describe('correlateFailures', () => {
 
     correlateFailures(store, PROJECT, { discussionWindowMs: HOUR });
 
-    expect(store.getLinkedNodeIds('fail', RESOLVED_BY)).toEqual([]);
+    expect(store.getLinkedNodeIds('fail', RESOLVED_BY_DISCUSSION)).toEqual([]);
   });
 
-  it('a failure can be linked by both heuristics at once, as two separate edges', () => {
+  it('a failure can be linked by both heuristics at once, as two separate relations', () => {
     store.upsertNodes([
       shellNode('fail', { ts: T0, command: 'npm test', exitCode: 1 }),
       shellNode('retry', { ts: T0 + HOUR, command: 'npm test', exitCode: 0 }),
@@ -140,7 +140,8 @@ describe('correlateFailures', () => {
 
     correlateFailures(store, PROJECT);
 
-    expect(new Set(store.getLinkedNodeIds('fail', RESOLVED_BY))).toEqual(new Set(['retry', 'discussion']));
+    expect(store.getLinkedNodeIds('fail', RESOLVED_BY_RETRY)).toEqual(['retry']);
+    expect(store.getLinkedNodeIds('fail', RESOLVED_BY_DISCUSSION)).toEqual(['discussion']);
   });
 
   it('a node with a passing exit code is never treated as a failure to correlate', () => {
@@ -163,6 +164,6 @@ describe('correlateFailures', () => {
     correlateFailures(store, PROJECT);
     correlateFailures(store, PROJECT);
 
-    expect(store.getLinkedNodeIds('fail', RESOLVED_BY)).toEqual(['retry']);
+    expect(store.getLinkedNodeIds('fail', RESOLVED_BY_RETRY)).toEqual(['retry']);
   });
 });

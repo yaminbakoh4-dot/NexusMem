@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runInit } from '../src/cli/commands/init.js';
 import { runSync } from '../src/cli/commands/sync.js';
+import { RESOLVED_BY_RETRY } from '../src/correlate/failure-fix.js';
 import { readConfig, resolveWorkspace, writeConfig } from '../src/config/workspace.js';
 import { makeNodeId } from '../src/core/ids.js';
 import { makeProjectId } from '../src/core/project.js';
@@ -99,7 +100,7 @@ describe('sync --link-failures', () => {
 
     const after = MemoryStore.open(ws.dbPath);
     try {
-      expect(after.getLinkedNodeIds(makeNodeId(projectId, 'shell_command', 'fail'), 'resolved_by')).toEqual([]);
+      expect(after.getLinkedNodeIds(makeNodeId(projectId, 'shell_command', 'fail'), RESOLVED_BY_RETRY)).toEqual([]);
     } finally {
       after.close();
     }
@@ -132,7 +133,7 @@ describe('sync --link-failures', () => {
 
     const after = MemoryStore.open(ws.dbPath);
     try {
-      expect(after.getLinkedNodeIds(failId, 'resolved_by')).toEqual([makeNodeId(projectId, 'shell_command', 'retry')]);
+      expect(after.getLinkedNodeIds(failId, RESOLVED_BY_RETRY)).toEqual([makeNodeId(projectId, 'shell_command', 'retry')]);
     } finally {
       after.close();
     }

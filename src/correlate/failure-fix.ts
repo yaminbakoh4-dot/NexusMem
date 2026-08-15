@@ -41,8 +41,17 @@ export interface CorrelateStats {
 const DEFAULT_RETRY_WINDOW_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_DISCUSSION_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-/** The one relation kind this module writes. A separate, future correlator could add others without a schema change. */
-export const RESOLVED_BY = 'resolved_by';
+/**
+ * One relation string per heuristic, not a shared `resolved_by` -- dogfooding
+ * against this repo's real history (2026-08-15) found the retry heuristic
+ * correct on every manually-checked link, but the discussion heuristic wrong
+ * on roughly half. A consumer (e.g. `pack.ts`) needs to trust one and ignore
+ * the other; a single relation string could not express that distinction
+ * without also tagging every row, which the relation string already does
+ * for free.
+ */
+export const RESOLVED_BY_RETRY = 'resolved_by:retry';
+export const RESOLVED_BY_DISCUSSION = 'resolved_by:discussion';
 
 interface FailureRow {
   id: string;
@@ -105,7 +114,7 @@ export function correlateFailures(store: MemoryStore, projectId: string, opts: C
       failure.cwd,
     ) as { id: string } | undefined;
     if (retry) {
-      store.linkNodes(failure.id, retry.id, RESOLVED_BY);
+      store.linkNodes(failure.id, retry.id, RESOLVED_BY_RETRY);
       linkedByRetry += 1;
     }
 
@@ -115,7 +124,7 @@ export function correlateFailures(store: MemoryStore, projectId: string, opts: C
         | { id: string }
         | undefined;
       if (discussion) {
-        store.linkNodes(failure.id, discussion.id, RESOLVED_BY);
+        store.linkNodes(failure.id, discussion.id, RESOLVED_BY_DISCUSSION);
         linkedByDiscussion += 1;
       }
     }
