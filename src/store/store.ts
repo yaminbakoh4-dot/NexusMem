@@ -6,6 +6,17 @@ import type { MemoryNode, NodeKind } from '../core/types.js';
 import { toMatchQuery } from './fts.js';
 import { migrate } from './schema.js';
 
+/** Enough of a node's content to pack it, without the `node_files`/`meta` join a full `MemoryNode` carries. */
+export interface LinkedNode {
+  id: string;
+  kind: NodeKind;
+  projectId: string;
+  ts: string;
+  title: string;
+  body: string;
+  signal: number;
+}
+
 export interface IngestStats {
   inserted: number;
   updated: number;
@@ -264,6 +275,53 @@ export class MemoryStore {
     const info = this.db.prepare('DELETE FROM nodes WHERE project_id = ?').run(projectId);
     this.db.prepare('DELETE FROM sync_state WHERE project_id = ?').run(projectId);
     return info.changes;
+  }
+
+  /**
+   * Record a directed relationship between two existing nodes -- e.g. a
+   * failed `shell_command` and whatever node later resolved it
+   * (`relation = 'resolved_by'`). A relation, not a new content node: the
+   * correlation *is* the relationship, and duplicating either side's content
+   * into a third node would just be another independently-ranked candidate.
+   *
+   * Idempotent by design (`INSERT OR IGNORE` against the table's own primary
+   * key) so re-running a correlation pass over already-linked nodes is a
+   * no-op, not a duplicate-row error.
+   */
+  linkNodes(fromNodeId: string, toNodeId: string, relation: string): void {
+    this.db
+      .prepare('INSERT OR IGNORE INTO node_links (from_node_id, to_node_id, relation, created_at) VALUES (?, ?, ?, ?)')
+      .run(fromNodeId, toNodeId, relation, Date.now());
+  }
+
+  /** Ids linked from `fromNodeId` under one relation, most recently linked first. Empty if none exist. */
+  getLinkedNodeIds(fromNodeId: string, relation: string): string[] {
+    return (
+      this.db
+        .prepare('SELECT to_node_id FROM node_links WHERE from_node_id = ? AND relation = ? ORDER BY created_at DESC')
+        .all(fromNodeId, relation) as Array<{ to_node_id: string }>
+    ).map((row) => row.to_node_id);
+  }
+
+  /**
+   * Hydrate full content for a set of node ids, e.g. to pack a linked
+   * resolution alongside the failure node that points at it. Order is not
+   * guaranteed to match `ids`; ids with no matching row are silently omitted
+   * rather than erroring. `node_links` has `ON DELETE CASCADE` on both
+   * columns, so an individual node delete (e.g. `reconcile.ts` migrating a
+   * node to a freshly-computed id) removes any link pointing at the old id
+   * along with it -- correct as a safety default, though note that reconcile
+   * does not currently re-create the link under the migrated node's new id;
+   * that gap is not addressed here.
+   */
+  getNodesByIds(ids: readonly string[]): LinkedNode[] {
+    if (ids.length === 0) return [];
+    return this.db
+      .prepare(
+        `SELECT id, kind, project_id AS projectId, ts, title, body, signal
+         FROM nodes WHERE id IN (SELECT value FROM json_each(?))`,
+      )
+      .all(JSON.stringify(ids)) as LinkedNode[];
   }
 
   /** How many nodes of one source exist for a project. Used to preview a `pruneSourceNodes` wipe before running it. */

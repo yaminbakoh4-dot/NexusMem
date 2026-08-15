@@ -203,6 +203,66 @@ describe('MemoryStore.search', () => {
   });
 });
 
+describe('MemoryStore node_links', () => {
+  let dir: string;
+  let store: MemoryStore;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'nexusmem-'));
+    store = MemoryStore.open(join(dir, 'memory.db'));
+    store.upsertNodes([
+      node({ id: 'failure', kind: 'shell_command', title: 'npm test failed' }),
+      node({ id: 'fix', kind: 'code_diff', title: 'fix(store): the actual fix' }),
+      node({ id: 'unrelated', title: 'unrelated node' }),
+    ]);
+  });
+
+  afterEach(() => {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('links a failure to its resolution, and reads it back by relation', () => {
+    store.linkNodes('failure', 'fix', 'resolved_by');
+
+    expect(store.getLinkedNodeIds('failure', 'resolved_by')).toEqual(['fix']);
+    expect(store.getLinkedNodeIds('failure', 'some_other_relation')).toEqual([]); // discriminating: relation is part of the key, not just a label
+    expect(store.getLinkedNodeIds('unrelated', 'resolved_by')).toEqual([]);
+  });
+
+  it('is idempotent: linking the same pair and relation twice does not error or duplicate', () => {
+    store.linkNodes('failure', 'fix', 'resolved_by');
+    store.linkNodes('failure', 'fix', 'resolved_by');
+
+    expect(store.getLinkedNodeIds('failure', 'resolved_by')).toEqual(['fix']);
+    const count = store.raw.prepare('SELECT COUNT(*) AS n FROM node_links').get() as { n: number };
+    expect(count.n).toBe(1);
+  });
+
+  it('hydrates full node content for a set of linked ids', () => {
+    store.linkNodes('failure', 'fix', 'resolved_by');
+    const linkedIds = store.getLinkedNodeIds('failure', 'resolved_by');
+
+    const hydrated = store.getNodesByIds(linkedIds);
+
+    expect(hydrated).toHaveLength(1);
+    expect(hydrated[0]).toMatchObject({ id: 'fix', kind: 'code_diff', title: 'fix(store): the actual fix' });
+  });
+
+  it('getNodesByIds returns nothing for an empty id list, and silently omits ids with no matching row', () => {
+    expect(store.getNodesByIds([])).toEqual([]);
+    expect(store.getNodesByIds(['does-not-exist'])).toEqual([]);
+  });
+
+  it('a link is deleted along with either node it references (ON DELETE CASCADE)', () => {
+    store.linkNodes('failure', 'fix', 'resolved_by');
+    store.clearProject(PROJECT); // deletes every node for this project, including both ends of the link
+
+    const count = store.raw.prepare('SELECT COUNT(*) AS n FROM node_links').get() as { n: number };
+    expect(count.n).toBe(0); // discriminating: without the FK's ON DELETE CASCADE this would still be 1
+  });
+});
+
 describe('toMatchQuery', () => {
   it('quotes tokens and adds prefix matching', () => {
     expect(toMatchQuery('refresh token')).toBe('"refresh"* OR "token"*');

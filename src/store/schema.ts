@@ -105,6 +105,25 @@ CREATE VIRTUAL TABLE nodes_vec USING vec0 (
 );
 `;
 
+const V3 = `
+-- A relation between two existing nodes, not a new content node -- the
+-- "failure -> fix" correlation is the relationship itself, and duplicating
+-- either side's content into a third node would just be another
+-- independently-ranked candidate instead of the link the feature needs.
+-- One physical table, multiple relation kinds; 'resolved_by' is the first.
+CREATE TABLE node_links (
+  from_node_id TEXT NOT NULL REFERENCES nodes (id) ON DELETE CASCADE,
+  to_node_id   TEXT NOT NULL REFERENCES nodes (id) ON DELETE CASCADE,
+  relation     TEXT NOT NULL,
+  created_at   INTEGER NOT NULL,
+  PRIMARY KEY (from_node_id, to_node_id, relation)
+);
+
+-- Packing a failure node needs its resolutions; nothing needs the reverse
+-- direction yet, so only the forward lookup gets an index.
+CREATE INDEX idx_node_links_from ON node_links (from_node_id);
+`;
+
 interface Migration {
   version: number;
   up: (db: Database) => void;
@@ -113,6 +132,7 @@ interface Migration {
 const MIGRATIONS: Migration[] = [
   { version: 1, up: (db) => db.exec(V1) },
   { version: 2, up: (db) => db.exec(V2) },
+  { version: 3, up: (db) => db.exec(V3) },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;
