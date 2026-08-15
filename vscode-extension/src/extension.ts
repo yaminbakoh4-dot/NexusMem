@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { searchMemory, ServerNotFoundError, type SearchMemoryResult } from './mcpClient.js';
+import { searchMemory, ServerNotFoundError, syncProject, type SearchMemoryResult } from './mcpClient.js';
 import { renderResultsHtml } from './renderResults.js';
 import { RecentMemoryProvider } from './recentMemoryView.js';
 import { shouldCheckFailure, shouldNotify, truncateForNotification } from './failureDetection.js';
@@ -8,13 +8,19 @@ function getCliPath(): string {
   return vscode.workspace.getConfiguration('nexusmem').get<string>('cliPath', 'nexusmem');
 }
 
+let outputChannel: vscode.OutputChannel | undefined;
+
 export function activate(context: vscode.ExtensionContext): void {
+  outputChannel = vscode.window.createOutputChannel('NexusMem');
+  context.subscriptions.push(outputChannel);
+
   const recentMemory = new RecentMemoryProvider(getCliPath);
   context.subscriptions.push(vscode.window.registerTreeDataProvider('nexusmem.recentMemory', recentMemory));
 
   context.subscriptions.push(
     vscode.commands.registerCommand('nexusmem.searchMemory', (prefilledQuery?: string) => runSearchMemory(context, prefilledQuery)),
     vscode.commands.registerCommand('nexusmem.refreshRecentMemory', () => recentMemory.refresh()),
+    vscode.commands.registerCommand('nexusmem.syncProject', () => runSyncProject(recentMemory)),
   );
 
   void recentMemory.refresh();
@@ -112,11 +118,38 @@ async function runSearchMemory(context: vscode.ExtensionContext, prefilledQuery?
 
     showResultsPanel(context, query, result);
   } catch (error) {
-    await reportSearchError(cliPath, error);
+    await reportServerError(cliPath, error, 'search');
   }
 }
 
-async function reportSearchError(cliPath: string, error: unknown): Promise<void> {
+async function runSyncProject(recentMemory: RecentMemoryProvider): Promise<void> {
+  const folder = vscode.workspace.workspaceFolders?.[0];
+  if (!folder) {
+    void vscode.window.showErrorMessage('NexusMem: open a folder or workspace first.');
+    return;
+  }
+
+  const cliPath = getCliPath();
+
+  try {
+    const result = await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: 'NexusMem: syncing memory' },
+      () => syncProject({ command: cliPath, projectRoot: folder.uri.fsPath }),
+    );
+
+    outputChannel?.appendLine(`[${new Date().toLocaleTimeString()}] ${result.summary}`);
+    const choice = await vscode.window.showInformationMessage('NexusMem: sync complete.', 'Show Output');
+    if (choice === 'Show Output') {
+      outputChannel?.show();
+    }
+
+    void recentMemory.refresh(); // a sync may have added nodes the sidebar hasn't seen yet
+  } catch (error) {
+    await reportServerError(cliPath, error, 'sync');
+  }
+}
+
+async function reportServerError(cliPath: string, error: unknown, action: string): Promise<void> {
   if (error instanceof ServerNotFoundError) {
     const choice = await vscode.window.showErrorMessage(
       `${error.message} Install it with "npm install -g nexusmem", or point the nexusmem.cliPath setting (currently "${cliPath}") at an existing install.`,
@@ -128,7 +161,7 @@ async function reportSearchError(cliPath: string, error: unknown): Promise<void>
     return;
   }
   const message = error instanceof Error ? error.message : String(error);
-  void vscode.window.showErrorMessage(`NexusMem search failed: ${message}`);
+  void vscode.window.showErrorMessage(`NexusMem ${action} failed: ${message}`);
 }
 
 let resultsPanel: vscode.WebviewPanel | undefined;

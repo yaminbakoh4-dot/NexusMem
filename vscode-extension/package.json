@@ -28,6 +28,11 @@
         "command": "nexusmem.refreshRecentMemory",
         "title": "NexusMem: Refresh Recent Memory",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "nexusmem.syncProject",
+        "title": "NexusMem: Sync Memory",
+        "icon": "$(sync)"
       }
     ],
     "views": {
@@ -41,9 +46,14 @@
     "menus": {
       "view/title": [
         {
+          "command": "nexusmem.syncProject",
+          "when": "view == nexusmem.recentMemory",
+          "group": "navigation@1"
+        },
+        {
           "command": "nexusmem.refreshRecentMemory",
           "when": "view == nexusmem.recentMemory",
-          "group": "navigation"
+          "group": "navigation@2"
         }
       ]
     },
