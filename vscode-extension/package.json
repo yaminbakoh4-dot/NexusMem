@@ -54,6 +54,11 @@
           "type": "string",
           "default": "nexusmem",
           "description": "Executable used to launch NexusMem's MCP server (`<cliPath> mcp`). Defaults to the globally installed `nexusmem` binary (`npm install -g nexusmem`). Set to an absolute path to use a different build."
+        },
+        "nexusmem.liveFailureDetection.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "When a command in an integrated terminal fails, check NexusMem's memory for a past failure/fix and show a notification if one is found. Requires VS Code's terminal shell integration to be active for your shell."
         }
       }
     }

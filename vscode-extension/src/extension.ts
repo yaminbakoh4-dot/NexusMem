@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { searchMemory, ServerNotFoundError, type SearchMemoryResult } from './mcpClient.js';
 import { renderResultsHtml } from './renderResults.js';
 import { RecentMemoryProvider } from './recentMemoryView.js';
+import { shouldCheckFailure, shouldNotify, truncateForNotification } from './failureDetection.js';
 
 function getCliPath(): string {
   return vscode.workspace.getConfiguration('nexusmem').get<string>('cliPath', 'nexusmem');
@@ -17,6 +18,71 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   void recentMemory.refresh();
+  registerLiveFailureDetection(context);
+}
+
+/**
+ * Proactively checks a terminal command against NexusMem's memory right
+ * when it fails, instead of waiting for the user to think to search --
+ * Phase 7's "actually demonstrates the moat" surface, per the project's
+ * roadmap.
+ *
+ * `vscode.window.onDidEndTerminalShellExecution` is stable API, but its
+ * runtime availability still depends on the user's VS Code version and,
+ * separately, on shell integration actually activating for their shell
+ * (that part is genuinely unverified here -- no GUI in this environment to
+ * confirm against a real PowerShell/bash/zsh session). The `typeof` guard
+ * below means an older VS Code silently skips this feature rather than
+ * crashing on activation; `engines.vscode` in package.json is deliberately
+ * left at its existing floor rather than bumped, so every other feature
+ * still installs there.
+ */
+function registerLiveFailureDetection(context: vscode.ExtensionContext): void {
+  const enabled = vscode.workspace.getConfiguration('nexusmem').get<boolean>('liveFailureDetection.enabled', true);
+  if (!enabled) return;
+  if (typeof vscode.window.onDidEndTerminalShellExecution !== 'function') return;
+
+  let checking = false;
+
+  context.subscriptions.push(
+    vscode.window.onDidEndTerminalShellExecution(async (event) => {
+      if (checking) return; // one background check at a time -- a failing loop should not spawn N concurrent server processes
+
+      const commandLine = event.execution.commandLine;
+      if (!shouldCheckFailure({ exitCode: event.exitCode, commandLine: commandLine.value, confidence: commandLine.confidence })) {
+        return;
+      }
+
+      const folder = vscode.workspace.workspaceFolders?.[0];
+      if (!folder) return;
+
+      checking = true;
+      try {
+        const result = await searchMemory({
+          command: getCliPath(),
+          projectRoot: folder.uri.fsPath,
+          query: commandLine.value,
+          budget: 500,
+        });
+
+        if (shouldNotify(result)) {
+          const choice = await vscode.window.showInformationMessage(
+            `NexusMem has seen "${truncateForNotification(commandLine.value)}" fail before.`,
+            'Show details',
+          );
+          if (choice === 'Show details') {
+            await vscode.commands.executeCommand('nexusmem.searchMemory', commandLine.value);
+          }
+        }
+      } catch {
+        // Best-effort background check: a spawn/connection failure here should not interrupt the
+        // user's terminal with an error dialog every time a command happens to fail. Running
+        // "NexusMem: Search Memory" directly still surfaces that failure clearly.
+      } finally {
+        checking = false;
+      }
+    }),
+  );
 }
 
 export function deactivate(): void {}
