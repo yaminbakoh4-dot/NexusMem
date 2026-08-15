@@ -5,10 +5,10 @@ git commits, code diffs, shell commands (with exit codes), tracked docs and (if 
 transcripts — from the command palette, without leaving the editor.
 
 This is an early, minimal surface: a search command, a read-only results panel, a sidebar list of
-what's been remembered lately, and a proactive check when a terminal command fails. It talks to the
-same MCP server ([`nexusmem mcp`](../README.md)) that Claude Desktop, Cursor and Windsurf already use
-against this codebase — no new server-side surface for search or live detection, just a client for the
-existing one (plus one new tool, `list_recent_memory`, for the sidebar).
+what's been remembered lately, a sync command, and a proactive check when a terminal command fails. It
+talks to the same MCP server ([`nexusmem mcp`](../README.md)) that Claude Desktop, Cursor and Windsurf
+already use against this codebase — no new server-side surface for search, sync or live detection, just
+a client for the existing one (plus one new tool, `list_recent_memory`, for the sidebar).
 
 ## Requirements
 
@@ -18,8 +18,9 @@ existing one (plus one new tool, `list_recent_memory`, for the sidebar).
   npm install -g nexusmem
   ```
 
-- The repository you're searching must already be initialized and synced (`nexusmem init && nexusmem sync`
-  from a terminal, once).
+- The repository needs to be initialized and synced at least once before there's anything to search or
+  list — either from a terminal (`nexusmem init && nexusmem sync`) or with **NexusMem: Sync Memory**
+  below, which does both.
 
 ## Usage
 
@@ -27,6 +28,14 @@ existing one (plus one new tool, `list_recent_memory`, for the sidebar).
 2. Run **NexusMem: Search Memory** from the command palette (`Ctrl+Shift+P` / `Cmd+Shift+P`).
 3. Type a free-text query (e.g. `why did npm whoami fail`). Results open in a panel beside the editor:
    the packed, token-budgeted context block NexusMem would hand an agent, plus match/token stats.
+
+### Sync
+
+**NexusMem: Sync Memory** (command palette, or the ↻-adjacent sync button in the sidebar's title bar)
+ingests new git/diff/shell/docs history and embeds it — the same as running `nexusmem sync` in a
+terminal, without leaving the editor. Initializes the repository first if it hasn't been already. The
+summary goes to the **NexusMem** output channel (a toast offers to open it); the sidebar refreshes
+itself afterward automatically.
 
 ### Recent Memory sidebar
 
@@ -54,10 +63,6 @@ extension still works.
 | --- | --- | --- |
 | `nexusmem.cliPath` | `nexusmem` | Executable used to launch the MCP server (`<cliPath> mcp`). Set to an absolute path if `nexusmem` isn't on `PATH` (e.g. a local build). |
 | `nexusmem.liveFailureDetection.enabled` | `true` | Check NexusMem's memory when a terminal command fails, and notify if it finds something. |
-
-## Not yet built
-
-Not in scope yet, tracked for later: a command to trigger `sync_project` from within the editor.
 
 ## Development
 
