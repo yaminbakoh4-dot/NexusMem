@@ -9,6 +9,8 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
 
 ## [Unreleased]
 
+## [0.3.1] — 2026-08-15
+
 ### Added
 
 - **`scripts/benchmark.ts` (`npm run bench`) — a reproducible end-to-end token-saving benchmark.**
