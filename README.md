@@ -181,14 +181,40 @@ corpus it runs 81–84%. It is useful for tuning the ranker and useless as a cla
 because the baseline is hypothetical: without NexusMem those candidates were never going into your
 context window in the first place.
 
-**End-to-end saving** compares packed context against reading the equivalent files in full. Measured
-at **~40%** on design queries against this codebase, hand-tallied from one real session rather than
-instrumented. Treat it as an order of magnitude.
+**End-to-end saving** compares the packed context NexusMem actually sends against reading, in full,
+the same files its own ranking identified as relevant to the query. Measured with
+[`scripts/benchmark.ts`](scripts/benchmark.ts) (`npm run bench`), which anyone who clones this repo
+and points it at a synced corpus can re-run from scratch:
 
-The long-term target is >70%, and this repository cannot demonstrate it. That figure describes repos
-with thousands of commits, where the win comes from omitting hundreds of unrelated items rather than
-shaving a handful. A benchmark at that size is still outstanding, and until it exists the honest
-number is 40%.
+| Corpus | Commits | Query set | vs. full file content | vs. `git log -p` on those files |
+| --- | --- | --- | --- | --- |
+| This repo | 62 | 16 real prompts, verbatim from this project's own history | 95% (median 94%) | 98% (median 97%) |
+| [`vitejs/vite`](https://github.com/vitejs/vite) | 9,567 | 16, mechanically sampled — see below | 99% (median 98%) | ~100% (median ~100%) — see caveat |
+
+Both clear the original >70% target ("cut API token spend versus sending full context"), and the vite
+run is the first measurement at the scale that target was always described as applying to.
+
+**Read the methodology before quoting either number, because it is a narrower claim than it looks:**
+
+- The file set each query is graded against comes from NexusMem's *own* ranking — whichever files the
+  packed nodes for that query touch, not an outside judge's idea of the right answer. This isolates
+  what the pack step (rank → budget → excerpt) saves once retrieval has already picked a candidate
+  set; it does not independently verify that the candidate set was the right one to pick.
+- The vite query set is not hand-picked: an even sample, across the full commit history, of
+  well-explained `fix`/`feat`/`perf`/`refactor` commits turned into "why does vite `<description>`"
+  from the commit's own conventional-commit text, plus rationale-bearing doc section headings. This
+  repo's own query set instead reuses real historical prompts verbatim from `conversation_turn`
+  nodes — several are broad task instructions rather than narrow questions, which pulls a wider file
+  set into scope and is part of why its number, while still high, sits below vite's. Both derivations
+  are mechanical and disclosed in `scripts/benchmark.ts`, neither is cherry-picked per-query.
+- `git log -p` on a file touched by thousands of commits is enormous — one vite query's baseline hit
+  7.5M tokens because a file in its resolved set has that much history. That is itself a finding, not
+  noise: at this scale, "just read the file's history instead" stops being a viable alternative at
+  all, which is a big part of why that column rounds to ~100%.
+- **This supersedes the previous ~40% figure**, which was hand-tallied from two hand-picked queries
+  against this repo alone, never instrumented, and used an unstated baseline. It was not wrong so much
+  as underspecified — this number replaces it with a stated method and a script that reproduces it,
+  rather than being a claim that the product got better.
 
 One thing that is not a percentage: shell commands and conversation turns have no cheap `grep`
 equivalent. Without something recording them, they are gone, not merely more expensive to find.

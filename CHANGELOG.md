@@ -9,6 +9,15 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
 
 ## [Unreleased]
 
+### Added
+
+- **`scripts/benchmark.ts` (`npm run bench`) — a reproducible end-to-end token-saving benchmark.**
+  Compares `packed.tokensUsed` against two baselines (full-file-read and `git log -p`) for the same
+  files a query's packed nodes touch, over a query set derived mechanically from the corpus itself
+  rather than hand-picked. Used to measure the README's `## What it costs you` numbers against both
+  this repo (62 commits) and a 9,567-commit external corpus (`vitejs/vite`) — see README for the
+  numbers and their methodology caveats.
+
 ### Fixed
 
 - **A generic 2-3 letter local model title, "id" as a search token, and one node's chunks flooding a
