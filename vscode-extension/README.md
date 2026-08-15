@@ -10,6 +10,11 @@ talks to the same MCP server ([`nexusmem mcp`](../README.md)) that Claude Deskto
 already use against this codebase — no new server-side surface for search, sync or live detection, just
 a client for the existing one (plus one new tool, `list_recent_memory`, for the sidebar).
 
+![A command fails in the integrated terminal; NexusMem recognizes it and notifies "NexusMem has seen \"npm whoami\" fail before."](screenshot-notification.png)
+
+*Live terminal-failure detection: `npm whoami` fails, and NexusMem — recognizing this exact command
+has failed and later been fixed before, from this repository's own history — says so immediately.*
+
 ## Requirements
 
 - [NexusMem](https://www.npmjs.com/package/nexusmem) installed and on `PATH`:
