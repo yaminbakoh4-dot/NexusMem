@@ -9,3 +9,4 @@ vitest.config.ts
 **/*.ts
 node_modules/**
 .gitignore
+icon-128.png

@@ -2,3 +2,8 @@ node_modules/
 dist/
 *.vsix
 *.tsbuildinfo
+
+# One-off 128x128 derivative of icon.png, for the Marketplace publisher
+# profile's logo upload widget specifically -- not part of the extension
+# itself (that uses icon.png directly). Regeneratable, not tracked.
+icon-128.png
