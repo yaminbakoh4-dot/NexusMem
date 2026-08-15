@@ -23,6 +23,17 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
   - Packing: `conversation_turn` and `doc_section` both chunk one reply or file into several nodes
     sharing the same timestamp; up to 2 may now appear in one packed result, down from unlimited.
 
+- **A repo's memory could silently split in two if its git remote URL ever changed** (a GitHub
+  account rename, an org transfer). Project identity is derived from the remote URL on purpose — so
+  the same repo re-cloned to a new path or machine keeps sharing memory — but a changed URL on the
+  *same* path minted a new id and stranded every node synced under the old one, invisible to
+  `status`/`query`/MCP from then on. `sync` now detects a prior id already recorded in the repo's own
+  database and reconciles it forward: recomputable node kinds (session summaries, hook-sourced shell
+  history) are migrated under their correct new id and deduplicated against anything already synced;
+  conversation turns, whose identity can't be recomputed, are reassigned in place. Git commits,
+  diffs, and doc sections are left alone — a normal sync already re-derives them completely, so
+  there is nothing to migrate.
+
 ## [0.3.0] — 2026-08-13
 
 **Upgrade note.** The first `sync` after upgrading drops every stored embedding and rebuilds it.

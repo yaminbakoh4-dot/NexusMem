@@ -119,6 +119,21 @@ export class MemoryStore {
   }
 
   /**
+   * Every other project id ever recorded in THIS repo's own database.
+   *
+   * A repo's `.nexusmem/memory.db` is never shared with another repo (each
+   * gets its own, gitignored), so any id here besides `currentProjectId` is
+   * evidence of a prior identity for this same repo -- typically its git
+   * remote URL changed since the last sync. See `reconcileProjectId` in
+   * `store/reconcile.ts`.
+   */
+  listOtherProjectIds(currentProjectId: string): string[] {
+    return (this.db.prepare('SELECT id FROM projects WHERE id != ?').all(currentProjectId) as Array<{ id: string }>).map(
+      (r) => r.id,
+    );
+  }
+
+  /**
    * Write a batch of nodes in one transaction.
    *
    * Ids are content-addressed, so re-ingesting the same event is a no-op --

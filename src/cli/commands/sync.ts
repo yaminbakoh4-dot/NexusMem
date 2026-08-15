@@ -5,7 +5,8 @@ import { collectDocFiles } from '../../collectors/docs.js';
 import { collectGitCommits } from '../../collectors/git-commits.js';
 import { collectSessionSummaries } from '../../collectors/sessions.js';
 import { collectShellHistory } from '../../collectors/shell-history.js';
-import { recordProject } from '../../config/registry.js';
+import { forgetProjects, recordProject } from '../../config/registry.js';
+import { writeConfig } from '../../config/workspace.js';
 import { collectClaudeCodeTranscripts } from '../../conversation/claude-code-reader.js';
 import type { RawConversationTurn } from '../../conversation/types.js';
 import { makeNodeId } from '../../core/ids.js';
@@ -14,6 +15,7 @@ import { readDocFiles } from '../../docs/read.js';
 import { isAncestor } from '../../git/repo.js';
 import { collectAvailableShellHistory } from '../../shell/detect.js';
 import { OllamaChatProvider } from '../../slm/provider.js';
+import { reconcileProjectId } from '../../store/reconcile.js';
 import { MemoryStore, type IngestStats } from '../../store/store.js';
 import { OllamaEmbeddingProvider } from '../../vector/embed.js';
 import { embedPendingNodes } from '../../vector/sync.js';
@@ -397,6 +399,34 @@ export async function runSync(opts: SyncOptions): Promise<number> {
 
   try {
     store.upsertProject({ id: projectId, root: repo.root, originUrl: repo.originUrl });
+
+    // A repo's own database never holds another repo's data (see
+    // registry.ts), so any other project id already in it is this same
+    // repo's prior identity -- almost always its git remote URL changed
+    // since the last sync (see reconcile.ts for the full story).
+    const staleProjectIds = store.listOtherProjectIds(projectId);
+    for (const staleId of staleProjectIds) {
+      const result = reconcileProjectId(store.raw, staleId, projectId);
+      const parts = [
+        result.migrated > 0 ? `${result.migrated} migrated` : null,
+        result.reassigned > 0 ? `${result.reassigned} reassigned` : null,
+        result.deduped > 0 ? `${result.deduped} already up to date` : null,
+        result.skipped > 0 ? `${result.skipped} left behind (not reconstructable)` : null,
+      ].filter((part): part is string => part !== null);
+      if (parts.length > 0) {
+        log(
+          `${pc.yellow('reconciled')} previous project identity ${pc.dim(staleId)} (remote URL likely changed): ${parts.join(', ')}`,
+        );
+      }
+    }
+    if (staleProjectIds.length > 0) {
+      await forgetProjects(staleProjectIds);
+      // config.json's projectId is otherwise write-once (set at init) and
+      // would keep reporting the stale id in `nexusmem init`'s "already
+      // initialized" message forever.
+      if (config.projectId !== projectId) await writeConfig(ws, { ...config, projectId });
+    }
+
     // Refreshed on every sync, not only at init: a repo initialized before
     // the registry existed, or moved since, is re-pointed by being used.
     await recordProject({ projectId, root: repo.root, dbPath: ws.dbPath, originUrl: repo.originUrl });
