@@ -34,6 +34,8 @@ has failed and later been fixed before, from this repository's own history — s
 3. Type a free-text query (e.g. `why did npm whoami fail`). Results open in a panel beside the editor:
    the packed, token-budgeted context block NexusMem would hand an agent, plus match/token stats.
 
+![Search results panel for the query "why did npm whoami fail," showing match/token stats and the packed context block, including the earlier README/source-file usage sections that reference the same query.](screenshot-search.png)
+
 ### Sync
 
 **NexusMem: Sync Memory** (command palette, or the ↻-adjacent sync button in the sidebar's title bar)
