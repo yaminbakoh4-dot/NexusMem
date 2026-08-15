@@ -1,17 +1,20 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
-export interface SearchMemoryOptions {
+export interface ServerOptions {
   /** Executable that starts NexusMem's MCP server, e.g. "nexusmem" or an absolute path to it. */
   command: string;
   /** Args before the trailing "mcp", e.g. a script path when `command` is a bare node binary. Empty for the normal `nexusmem` shim. */
   commandArgs?: string[];
-  /** Repository root to search -- NexusMem scopes every tool call by this, not any implicit cwd. */
+  /** Repository root to scope the call to -- NexusMem scopes every tool call by this, not any implicit cwd. */
   projectRoot: string;
-  query: string;
-  budget?: number;
   /** Extra env vars for the spawned server, merged on top of the SDK's fixed inherited allowlist (PATH, APPDATA, ...). */
   env?: Record<string, string>;
+}
+
+export interface SearchMemoryOptions extends ServerOptions {
+  query: string;
+  budget?: number;
 }
 
 export interface SearchMemoryResult {
@@ -22,6 +25,20 @@ export interface SearchMemoryResult {
   tokensUsed: number;
   tokensBudget: number;
   projectsSearched: string[];
+}
+
+export interface ListRecentMemoryOptions extends ServerOptions {
+  /** Max items to return, newest first. Default 20 (matches the server's own default). */
+  limit?: number;
+}
+
+export interface RecentMemoryItem {
+  id: string;
+  kind: string;
+  ts: string;
+  source: string;
+  title: string;
+  signal: number;
 }
 
 interface ToolCallResult {
@@ -54,13 +71,13 @@ export class ServerNotFoundError extends Error {
 }
 
 /**
- * Spawns `<command> mcp` fresh per call and speaks MCP over stdio -- the same
- * protocol/server Claude Desktop and Cursor already exercise against this
- * codebase (see the root project's tests/mcp.test.ts). One-shot rather than a
- * kept-alive connection: simplest correct thing for a command-palette query
- * fired every so often, not a hot path.
+ * Spawns `<command> mcp` fresh per call, connects, and hands the client to
+ * `fn` -- shared by every tool call so the connect/error-classify/close
+ * boilerplate exists once. One-shot rather than a kept-alive connection:
+ * simplest correct thing for a command fired every so often from the command
+ * palette or sidebar, not a hot path.
  */
-export async function searchMemory(options: SearchMemoryOptions): Promise<SearchMemoryResult> {
+async function withServer<T>(options: ServerOptions, fn: (client: Client) => Promise<T>): Promise<T> {
   const transport = new StdioClientTransport({
     command: options.command,
     args: [...(options.commandArgs ?? []), 'mcp'],
@@ -74,7 +91,24 @@ export async function searchMemory(options: SearchMemoryOptions): Promise<Search
   try {
     await client.connect(transport, { timeout: 10_000 });
     connected = true;
+    return await fn(client);
+  } catch (error) {
+    if (!connected) {
+      throw new ServerNotFoundError(options.command, error);
+    }
+    throw error;
+  } finally {
+    await client.close();
+  }
+}
 
+function firstTextContent(result: ToolCallResult): string | undefined {
+  return result.content.find((c) => c.type === 'text')?.text;
+}
+
+/** The same protocol/server Claude Desktop and Cursor already exercise against this codebase (see the root project's tests/mcp.test.ts). */
+export async function searchMemory(options: SearchMemoryOptions): Promise<SearchMemoryResult> {
+  return withServer(options, async (client) => {
     const result = (await client.callTool(
       {
         name: 'search_memory',
@@ -85,15 +119,13 @@ export async function searchMemory(options: SearchMemoryOptions): Promise<Search
     )) as ToolCallResult;
 
     if (result.isError) {
-      const message = result.content.find((c) => c.type === 'text')?.text ?? 'search_memory returned an error';
-      throw new Error(message);
+      throw new Error(firstTextContent(result) ?? 'search_memory returned an error');
     }
 
     const structured = result.structuredContent as Partial<SearchMemoryResult> | undefined;
-    const text = structured?.text ?? result.content.find((c) => c.type === 'text')?.text ?? '';
 
     return {
-      text,
+      text: structured?.text ?? firstTextContent(result) ?? '',
       matched: structured?.matched ?? 0,
       bm25Matched: structured?.bm25Matched ?? 0,
       vectorMatched: structured?.vectorMatched ?? 0,
@@ -101,12 +133,26 @@ export async function searchMemory(options: SearchMemoryOptions): Promise<Search
       tokensBudget: structured?.tokensBudget ?? options.budget ?? 2000,
       projectsSearched: structured?.projectsSearched ?? [],
     };
-  } catch (error) {
-    if (!connected) {
-      throw new ServerNotFoundError(options.command, error);
+  });
+}
+
+/** Chronological, not relevance-ranked: "what has this project remembered lately," no query needed. */
+export async function listRecentMemory(options: ListRecentMemoryOptions): Promise<RecentMemoryItem[]> {
+  return withServer(options, async (client) => {
+    const result = (await client.callTool(
+      {
+        name: 'list_recent_memory',
+        arguments: { projectRoot: options.projectRoot, limit: options.limit },
+      },
+      undefined,
+      { timeout: 15_000 },
+    )) as ToolCallResult;
+
+    if (result.isError) {
+      throw new Error(firstTextContent(result) ?? 'list_recent_memory returned an error');
     }
-    throw error;
-  } finally {
-    await client.close();
-  }
+
+    const structured = result.structuredContent as { items?: RecentMemoryItem[] } | undefined;
+    return structured?.items ?? [];
+  });
 }

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { searchMemory, ServerNotFoundError } from '../src/mcpClient.js';
+import { listRecentMemory, searchMemory, ServerNotFoundError } from '../src/mcpClient.js';
 // Reuses the root project's own hardened git fixture helper (handles the
 // intermittent Windows `git` crash this project has already been bitten by)
 // instead of a thinner reimplementation that would reintroduce the same flake.
@@ -35,13 +35,18 @@ function syncRepo(dir: string, env: Record<string, string>): void {
   execFileSync(process.execPath, [BUILT_CLI, 'sync', '--no-embed'], { cwd: dir, env, stdio: 'pipe' });
 }
 
+// One file-scoped build, not one per describe block: two independent
+// `npm run build` invocations against the same root `dist/` would be
+// wasteful at best and a real race at worst (tsup cleans the output folder
+// before writing), and doubles exposure to this machine's own documented
+// bursty build/spawn flakiness for no benefit.
+beforeAll(() => {
+  buildRootCli();
+});
+
 describe('mcpClient.searchMemory (real stdio child process)', () => {
   let repoDir: string;
   let env: Record<string, string>;
-
-  beforeAll(() => {
-    buildRootCli();
-  });
 
   beforeEach(() => {
     repoDir = mkdtempSync(join(tmpdir(), 'nexusmem-vscode-mcpclient-'));
@@ -77,5 +82,45 @@ describe('mcpClient.searchMemory (real stdio child process)', () => {
         env,
       }),
     ).rejects.toBeInstanceOf(ServerNotFoundError);
+  });
+});
+
+describe('mcpClient.listRecentMemory (real stdio child process)', () => {
+  let repoDir: string;
+  let env: Record<string, string>;
+
+  beforeEach(() => {
+    repoDir = mkdtempSync(join(tmpdir(), 'nexusmem-vscode-mcpclient-recent-'));
+    initGitRepo(repoDir);
+    env = { ...(process.env as Record<string, string>), NEXUSMEM_HOME: join(repoDir, '.test-home') };
+    syncRepo(repoDir, env);
+  });
+
+  afterEach(() => {
+    rmSync(repoDir, { recursive: true, force: true });
+  });
+
+  it('returns the synced repo commit, newest first', async () => {
+    const items = await listRecentMemory({
+      command: process.execPath,
+      commandArgs: [BUILT_CLI],
+      projectRoot: repoDir,
+      env,
+    });
+
+    expect(items.length).toBeGreaterThan(0);
+    expect(items.some((item) => item.title.includes('retry timeout'))).toBe(true);
+  });
+
+  it('respects limit', async () => {
+    const items = await listRecentMemory({
+      command: process.execPath,
+      commandArgs: [BUILT_CLI],
+      projectRoot: repoDir,
+      env,
+      limit: 1,
+    });
+
+    expect(items).toHaveLength(1);
   });
 });
