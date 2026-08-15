@@ -36,8 +36,10 @@ ROADMAP.local.md
 # summary numbers committed into README.md.
 /bench/results/
 
-# Editor / OS cruft.
-.vscode/
+# Editor / OS cruft. Anchored to the repo root: vscode-extension/.vscode/
+# holds real, committed debug config (launch.json) for developing the
+# extension itself, not personal editor settings.
+/.vscode/
 .idea/
 .DS_Store
 Thumbs.db
