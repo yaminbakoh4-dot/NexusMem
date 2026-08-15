@@ -263,6 +263,62 @@ describe('MemoryStore node_links', () => {
   });
 });
 
+describe('MemoryStore.listRecentNodes', () => {
+  let dir: string;
+  let store: MemoryStore;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'nexusmem-'));
+    store = MemoryStore.open(join(dir, 'memory.db'));
+  });
+
+  afterEach(() => {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('returns nodes newest first, by event time not insertion order', () => {
+    // Inserted oldest-first so a naive "last inserted" implementation would
+    // pass by accident; ts_epoch ordering is what actually matters.
+    store.upsertNodes([
+      node({ id: 'oldest', ts: '2026-01-01T10:00:00+07:00', title: 'oldest' }),
+      node({ id: 'newest', ts: '2026-03-01T10:00:00+07:00', title: 'newest' }),
+      node({ id: 'middle', ts: '2026-02-01T10:00:00+07:00', title: 'middle' }),
+    ]);
+
+    expect(store.listRecentNodes(PROJECT).map((n) => n.id)).toEqual(['newest', 'middle', 'oldest']);
+  });
+
+  it('respects the limit', () => {
+    store.upsertNodes([
+      node({ id: 'a', ts: '2026-01-01T10:00:00+07:00' }),
+      node({ id: 'b', ts: '2026-01-02T10:00:00+07:00' }),
+      node({ id: 'c', ts: '2026-01-03T10:00:00+07:00' }),
+    ]);
+
+    expect(store.listRecentNodes(PROJECT, 2).map((n) => n.id)).toEqual(['c', 'b']);
+  });
+
+  it('is scoped to one project', () => {
+    store.upsertNodes([node({ id: 'a' }), node({ id: 'b', projectId: 'proj-b' })]);
+
+    expect(store.listRecentNodes(PROJECT).map((n) => n.id)).toEqual(['a']);
+    expect(store.listRecentNodes('proj-b').map((n) => n.id)).toEqual(['b']);
+  });
+
+  it('returns the fields a sidebar-style listing needs, without the full body', () => {
+    store.upsertNodes([node({ id: 'a', kind: 'shell_command', source: 'shell:pwsh', title: 'npm whoami', signal: 0.42 })]);
+
+    expect(store.listRecentNodes(PROJECT)).toEqual([
+      { id: 'a', kind: 'shell_command', ts: '2026-03-01T10:00:00+07:00', source: 'shell:pwsh', title: 'npm whoami', signal: 0.42 },
+    ]);
+  });
+
+  it('returns an empty list for a project with no nodes', () => {
+    expect(store.listRecentNodes('no-such-project')).toEqual([]);
+  });
+});
+
 describe('toMatchQuery', () => {
   it('quotes tokens and adds prefix matching', () => {
     expect(toMatchQuery('refresh token')).toBe('"refresh"* OR "token"*');

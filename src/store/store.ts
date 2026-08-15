@@ -77,6 +77,16 @@ export interface VectorHit {
   distance: number;
 }
 
+/** Enough of a node to list it, without the `node_files`/`meta`/body a full `MemoryNode` carries. */
+export interface RecentNode {
+  id: string;
+  kind: NodeKind;
+  ts: string;
+  source: string;
+  title: string;
+  signal: number;
+}
+
 export interface EmbeddableNode {
   rowid: number;
   id: string;
@@ -322,6 +332,24 @@ export class MemoryStore {
          FROM nodes WHERE id IN (SELECT value FROM json_each(?))`,
       )
       .all(JSON.stringify(ids)) as LinkedNode[];
+  }
+
+  /**
+   * The most recently-remembered nodes for a project, newest event first --
+   * chronology, not relevance. No `body`: a listing (e.g. a sidebar) needs
+   * the title and enough metadata to label each row, not the full text.
+   * `idx_nodes_project_ts` already exists for exactly this access pattern.
+   */
+  listRecentNodes(projectId: string, limit = 20): RecentNode[] {
+    return this.db
+      .prepare(
+        `SELECT id, kind, ts, source, title, signal
+         FROM nodes
+         WHERE project_id = ?
+         ORDER BY ts_epoch DESC
+         LIMIT ?`,
+      )
+      .all(projectId, limit) as RecentNode[];
   }
 
   /** How many nodes of one source exist for a project. Used to preview a `pruneSourceNodes` wipe before running it. */
