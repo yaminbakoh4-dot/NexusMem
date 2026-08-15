@@ -51,6 +51,8 @@
   },
   "keywords": [
     "ai",
+    "shell-history",
+    "exit-codes",
     "memory",
     "context",
     "mcp",
