@@ -400,6 +400,15 @@ export async function runSync(opts: SyncOptions): Promise<number> {
   try {
     store.upsertProject({ id: projectId, root: repo.root, originUrl: repo.originUrl });
 
+    // Cleared *before* reconciliation runs below, deliberately: reconciliation
+    // writes under `projectId` too, and clearing after it ran would silently
+    // destroy the very data it just migrated forward -- data that, unlike
+    // git/diff/docs, a fresh re-ingest cannot reproduce.
+    if (opts.rebuild) {
+      const removed = store.clearProject(projectId);
+      log(`${pc.dim('rebuild')} dropped ${removed} existing node(s)`);
+    }
+
     // A repo's own database never holds another repo's data (see
     // registry.ts), so any other project id already in it is this same
     // repo's prior identity -- almost always its git remote URL changed
@@ -420,6 +429,13 @@ export async function runSync(opts: SyncOptions): Promise<number> {
       }
     }
     if (staleProjectIds.length > 0) {
+      if (opts.rebuild) {
+        // Reconciliation just salvaged everything recoverable; --rebuild's
+        // fresh-start intent extends naturally to purging what's deliberately
+        // left behind (git/diff/doc/pre-hook-shell rows -- see reconcile.ts
+        // for why those specifically are never migrated).
+        for (const staleId of staleProjectIds) store.clearProject(staleId);
+      }
       await forgetProjects(staleProjectIds);
       // config.json's projectId is otherwise write-once (set at init) and
       // would keep reporting the stale id in `nexusmem init`'s "already
@@ -430,11 +446,6 @@ export async function runSync(opts: SyncOptions): Promise<number> {
     // Refreshed on every sync, not only at init: a repo initialized before
     // the registry existed, or moved since, is re-pointed by being used.
     await recordProject({ projectId, root: repo.root, dbPath: ws.dbPath, originUrl: repo.originUrl });
-
-    if (opts.rebuild) {
-      const removed = store.clearProject(projectId);
-      log(`${pc.dim('rebuild')} dropped ${removed} existing node(s)`);
-    }
 
     const git = await syncGit(store, projectId, opts, repo, config, log);
     const diffs = await syncDiffs(store, projectId, opts, repo, config, log);
