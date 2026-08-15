@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { listRecentMemory, searchMemory, ServerNotFoundError } from '../src/mcpClient.js';
+import { listRecentMemory, searchMemory, ServerNotFoundError, syncProject } from '../src/mcpClient.js';
 // Reuses the root project's own hardened git fixture helper (handles the
 // intermittent Windows `git` crash this project has already been bitten by)
 // instead of a thinner reimplementation that would reintroduce the same flake.
@@ -122,5 +122,35 @@ describe('mcpClient.listRecentMemory (real stdio child process)', () => {
     });
 
     expect(items).toHaveLength(1);
+  });
+});
+
+describe('mcpClient.syncProject (real stdio child process)', () => {
+  let repoDir: string;
+  let env: Record<string, string>;
+
+  beforeEach(() => {
+    repoDir = mkdtempSync(join(tmpdir(), 'nexusmem-vscode-mcpclient-sync-'));
+    initGitRepo(repoDir);
+    env = { ...(process.env as Record<string, string>), NEXUSMEM_HOME: join(repoDir, '.test-home') };
+    // Deliberately NOT pre-synced (unlike the other describe blocks above) --
+    // sync_project handles init + sync itself, so this proves that end to end
+    // rather than against a repo the test setup already prepared.
+  });
+
+  afterEach(() => {
+    rmSync(repoDir, { recursive: true, force: true });
+  });
+
+  it('ingests the repo and reports it in the summary', async () => {
+    const result = await syncProject({
+      command: process.execPath,
+      commandArgs: [BUILT_CLI],
+      projectRoot: repoDir,
+      env,
+    });
+
+    expect(result.summary).toContain('synced');
+    expect(result.summary).toContain('1 commit');
   });
 });

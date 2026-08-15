@@ -156,3 +156,37 @@ export async function listRecentMemory(options: ListRecentMemoryOptions): Promis
     return structured?.items ?? [];
   });
 }
+
+export interface SyncProjectResult {
+  summary: string;
+}
+
+/**
+ * Ingests new git/diff/shell/docs (and, if enabled, conversation) history
+ * and embeds pending nodes -- the same work `nexusmem sync` does from a
+ * terminal, just triggered from the editor. `sync_project` has no
+ * `structuredContent` (see the root project's src/mcp/server.ts), only a
+ * text summary, so this reads `content` directly rather than preferring a
+ * structured field that doesn't exist here.
+ *
+ * A generous 120s tool-call timeout, well above search's 20s: embedding a
+ * large first-time corpus genuinely takes a while (measured elsewhere in
+ * this project at ~76s for 12.5k nodes), and this is a foreground,
+ * user-initiated action with its own progress notification, not a
+ * background check that needs to stay snappy.
+ */
+export async function syncProject(options: ServerOptions): Promise<SyncProjectResult> {
+  return withServer(options, async (client) => {
+    const result = (await client.callTool(
+      { name: 'sync_project', arguments: { projectRoot: options.projectRoot } },
+      undefined,
+      { timeout: 120_000 },
+    )) as ToolCallResult;
+
+    if (result.isError) {
+      throw new Error(firstTextContent(result) ?? 'sync_project returned an error');
+    }
+
+    return { summary: firstTextContent(result) ?? '' };
+  });
+}
