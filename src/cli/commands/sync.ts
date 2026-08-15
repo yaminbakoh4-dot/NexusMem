@@ -1,4 +1,5 @@
 import pc from 'picocolors';
+import { correlateFailures } from '../../correlate/failure-fix.js';
 import { collectConversationTurns } from '../../collectors/conversation.js';
 import { collectCommitDiffs, DIFF_SOURCE } from '../../collectors/diffs.js';
 import { collectDocFiles } from '../../collectors/docs.js';
@@ -43,6 +44,13 @@ export interface SyncOptions {
   pruneStaleShell?: boolean;
   /** Confirms an irreversible `pruneSource`/`pruneStaleShell` delete. Without it, the matching count is printed and nothing is removed. */
   yes?: boolean;
+  /**
+   * Opt-in (Phase 7): after ingest, run `correlateFailures` to link failed
+   * shell commands to whatever later resolved them. Off by default -- both
+   * heuristics are new and unvalidated, matching how session summarization
+   * shipped opt-in first before being trusted as a default.
+   */
+  linkFailures?: boolean;
   quiet: boolean;
   /**
    * Where the final summary goes. Defaults to real stdout for the CLI.
@@ -583,6 +591,16 @@ export async function runSync(opts: SyncOptions): Promise<number> {
       }
     }
 
+    let linkLine = '';
+    if (opts.linkFailures) {
+      // After ingest/embedding, not folded into any one source's sync
+      // function above: correlation reads across shell_command and
+      // conversation_turn/session_summary nodes together, so it only makes
+      // sense once whatever this run ingested is already in the store.
+      const linkStats = correlateFailures(store, projectId);
+      linkLine = `  ${pc.dim(`chains: ${linkStats.failuresExamined} failure(s) examined, ${linkStats.linkedByRetry} linked by retry, ${linkStats.linkedByDiscussion} by discussion`)}\n`;
+    }
+
     store.markSynced(projectId);
 
     const totals: IngestStats = { inserted: 0, updated: 0, unchanged: 0 };
@@ -607,7 +625,7 @@ export async function runSync(opts: SyncOptions): Promise<number> {
         `  ${pc.green(`+${totals.inserted} new`)}  ${pc.yellow(`~${totals.updated} updated`)}  ${pc.dim(`=${totals.unchanged} unchanged`)}`,
         `  ${pc.dim(`${stats.total} node(s) total across ${stats.distinctFiles} file path(s)`)}`,
         '',
-      ].join('\n') + embedLine,
+      ].join('\n') + embedLine + linkLine,
     );
 
     return 0;

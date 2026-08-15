@@ -90,6 +90,11 @@ program
     false,
   )
   .option('--yes', 'confirm an irreversible --prune-source/--prune-stale-shell delete', false)
+  .option(
+    '--link-failures',
+    'opt-in (experimental): after ingest, link failed shell commands to whatever later resolved them',
+    false,
+  )
   .option('-q, --quiet', 'only print the final summary', false)
   .action((options) =>
     guard(() =>
@@ -105,6 +110,7 @@ program
         pruneSource: options.pruneSource,
         pruneStaleShell: options.pruneStaleShell,
         yes: options.yes,
+        linkFailures: options.linkFailures,
         quiet: options.quiet,
       }),
     )(),
