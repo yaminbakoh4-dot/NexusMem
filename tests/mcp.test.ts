@@ -376,6 +376,23 @@ describe('mcp server over real stdio child process', () => {
       expect(syncResult.isError).toBeFalsy();
       expect(syncResult.content[0]?.type).toBe('text');
       expect(syncResult.content[0]?.text).toContain('synced');
+      /**
+       * Real finding, not a hypothetical: a live MCP client (the VS Code
+       * extension's Output channel) rendered this summary with literal
+       * "esc[32m"-style text instead of colored output. `runInit`/`runSync`
+       * format their `out` stream with picocolors for terminal display, and
+       * picocolors' own source treats `platform === 'win32'` as sufficient
+       * evidence of color support on its own -- it never checks
+       * `process.stdout.isTTY`. Correct for a real terminal; wrong here,
+       * since this process's stdout is the MCP JSON-RPC channel, never a
+       * terminal. Must be asserted here, over the real stdio transport, not
+       * via a direct `syncProject()` call: `StdioClientTransport` spawns the
+       * child with the SDK's own curated env allowlist, not a full
+       * `process.env` passthrough, so a `NO_COLOR` set in the *developer's*
+       * shell (as it is on this machine) does not reach the spawned server
+       * and cannot mask the bug here the way it would in-process.
+       */
+      expect(syncResult.content[0]?.text).not.toMatch(/\x1b\[/);
       expect(session.protocolErrors, session.stderr()).toEqual([]);
 
       const statusResult = (await session.client.callTool(

@@ -28,6 +28,16 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
   live-id-only prune could not reach nodes reconciliation deliberately left in place. Exposed on both
   the CLI and the MCP `sync_project` tool.
 
+### Fixed
+
+- **`sync_project`'s summary no longer contains raw ANSI color codes on Windows.** `runInit`/`runSync`
+  format their output with picocolors for terminal display, and picocolors treats `platform ===
+  'win32'` as sufficient evidence of color support on its own, without checking `isTTY` — correct for
+  a real terminal, wrong for the MCP JSON-RPC channel, which is piped on every platform. Found live: a
+  real MCP client (the VS Code extension's Output channel) rendered the raw escape codes as literal
+  text instead of color. Stripped at the MCP boundary in `syncProject`, leaving the CLI's own terminal
+  output untouched.
+
 ## [0.3.1] — 2026-08-15
 
 ### Added

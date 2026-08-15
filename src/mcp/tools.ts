@@ -143,7 +143,25 @@ export async function syncProject(input: SyncProjectInput): Promise<SyncProjectO
   };
   await runSync(opts);
 
-  return { summary: chunks.join('').trim() };
+  return { summary: stripAnsi(chunks.join('').trim()) };
+}
+
+/**
+ * Strips ANSI SGR color codes (`\x1b[...m`) from CLI-formatted text before
+ * it leaves the MCP boundary.
+ *
+ * `runInit`/`runSync` format their `out` stream with picocolors for
+ * terminal display -- correct there. But picocolors' own source
+ * (`node_modules/picocolors/picocolors.js`) treats `platform === 'win32'`
+ * as sufficient evidence of color support on its own; it never checks
+ * `process.stdout.isTTY`. This process's stdout is the MCP JSON-RPC
+ * channel, piped, never a terminal, on every platform -- so on Windows the
+ * summary came out colorized regardless. Confirmed live, not just reasoned
+ * about: a real MCP client (the VS Code extension's Output channel)
+ * rendered the raw escape codes as literal text.
+ */
+function stripAnsi(text: string): string {
+  return text.replace(/\x1b\[[0-9;]*m/g, '');
 }
 
 export interface ListRecentMemoryInput {
