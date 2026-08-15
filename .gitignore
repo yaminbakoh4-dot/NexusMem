@@ -31,6 +31,11 @@ npm-debug.log*
 ROADMAP.local.md
 *.local.md
 
+# Raw per-query benchmark output (scripts/benchmark.ts) -- machine- and
+# run-dependent; the reproducible artifact is the script itself plus the
+# summary numbers committed into README.md.
+/bench/results/
+
 # Editor / OS cruft.
 .vscode/
 .idea/
