@@ -72,6 +72,21 @@ Requirements: Node 22 or newer, and git. Node 20 will not work, because `better-
 prebuilt binary for it and Node 20 went end-of-life in April 2026. Ollama is optional and only
 affects semantic search (see below).
 
+## Optional: exact shell capture
+
+Scraped history files (PSReadLine, `.bash_history`, `.zsh_history`) give you command text and not
+much else. The hook gives you working directory, exit code and a real timestamp:
+
+```bash
+nexusmem hook install
+```
+
+It wraps your existing PowerShell prompt rather than replacing it, is idempotent, and
+`nexusmem hook remove` undoes it cleanly.
+
+Exit codes are what make this worth installing. A failed command is a stronger signal than a
+successful one, and without the hook there is no way to tell them apart.
+
 ## How retrieval works
 
 Every source normalizes to the same `MemoryNode` shape, so a commit, a shell command and a docs
@@ -156,21 +171,6 @@ Three tools over stdio: `search_memory` returns the packed context block, `sync_
 `get_status` reports what is currently remembered. Each takes an explicit `projectRoot`, because an
 MCP tool call carries no shell working directory. `sync_project` runs `init` for you if the
 repository has not been set up.
-
-## Optional: exact shell capture
-
-Scraped history files (PSReadLine, `.bash_history`, `.zsh_history`) give you command text and not
-much else. The hook gives you working directory, exit code and a real timestamp:
-
-```bash
-nexusmem hook install
-```
-
-It wraps your existing PowerShell prompt rather than replacing it, is idempotent, and
-`nexusmem hook remove` undoes it cleanly.
-
-Exit codes are what make this worth installing. A failed command is a stronger signal than a
-successful one, and without the hook there is no way to tell them apart.
 
 ## What it costs you
 
@@ -348,8 +348,8 @@ Deleting `.nexusmem/` loses nothing that `sync` cannot rebuild.
 
 ## Status
 
-Ingestion, hybrid retrieval, budgeted packing and the MCP server all work and are covered by 315
-tests running on Linux and Windows across Node 22 and 24. Phase 3 is complete.
+Ingestion, hybrid retrieval, budgeted packing and the MCP server all work and are covered by 342
+tests running on Linux and Windows across Node 22 and 24.
 
 ## Development
 
