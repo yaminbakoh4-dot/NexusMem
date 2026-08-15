@@ -23,8 +23,30 @@
       {
         "command": "nexusmem.searchMemory",
         "title": "NexusMem: Search Memory"
+      },
+      {
+        "command": "nexusmem.refreshRecentMemory",
+        "title": "NexusMem: Refresh Recent Memory",
+        "icon": "$(refresh)"
       }
     ],
+    "views": {
+      "explorer": [
+        {
+          "id": "nexusmem.recentMemory",
+          "name": "NexusMem: Recent Memory"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "nexusmem.refreshRecentMemory",
+          "when": "view == nexusmem.recentMemory",
+          "group": "navigation"
+        }
+      ]
+    },
     "configuration": {
       "title": "NexusMem",
       "properties": {

@@ -1,27 +1,42 @@
 import * as vscode from 'vscode';
 import { searchMemory, ServerNotFoundError, type SearchMemoryResult } from './mcpClient.js';
 import { renderResultsHtml } from './renderResults.js';
+import { RecentMemoryProvider } from './recentMemoryView.js';
+
+function getCliPath(): string {
+  return vscode.workspace.getConfiguration('nexusmem').get<string>('cliPath', 'nexusmem');
+}
 
 export function activate(context: vscode.ExtensionContext): void {
-  context.subscriptions.push(vscode.commands.registerCommand('nexusmem.searchMemory', () => runSearchMemory(context)));
+  const recentMemory = new RecentMemoryProvider(getCliPath);
+  context.subscriptions.push(vscode.window.registerTreeDataProvider('nexusmem.recentMemory', recentMemory));
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('nexusmem.searchMemory', (prefilledQuery?: string) => runSearchMemory(context, prefilledQuery)),
+    vscode.commands.registerCommand('nexusmem.refreshRecentMemory', () => recentMemory.refresh()),
+  );
+
+  void recentMemory.refresh();
 }
 
 export function deactivate(): void {}
 
-async function runSearchMemory(context: vscode.ExtensionContext): Promise<void> {
+async function runSearchMemory(context: vscode.ExtensionContext, prefilledQuery?: string): Promise<void> {
   const folder = vscode.workspace.workspaceFolders?.[0];
   if (!folder) {
     void vscode.window.showErrorMessage('NexusMem: open a folder or workspace first.');
     return;
   }
 
-  const query = await vscode.window.showInputBox({
-    prompt: 'Search NexusMem-remembered history for this repository',
-    placeHolder: 'e.g. why did npm whoami fail',
-  });
+  const query =
+    prefilledQuery ??
+    (await vscode.window.showInputBox({
+      prompt: 'Search NexusMem-remembered history for this repository',
+      placeHolder: 'e.g. why did npm whoami fail',
+    }));
   if (!query || query.trim().length === 0) return;
 
-  const cliPath = vscode.workspace.getConfiguration('nexusmem').get<string>('cliPath', 'nexusmem');
+  const cliPath = getCliPath();
 
   try {
     const result = await vscode.window.withProgress(
