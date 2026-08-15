@@ -57,13 +57,21 @@ export function createServer(): McpServer {
     {
       title: 'Sync remembered history',
       description:
-        'Ingest new git, diff, shell, docs and (if enabled) conversation history for a NexusMem-tracked repository into its local database.',
+        'Ingest new git, diff, shell, docs and (if enabled) conversation history for a NexusMem-tracked repository into its local database. ' +
+        'Pass pruneSource or pruneStaleShell instead to delete a dead source\'s nodes (e.g. the pre-hook shell scrape) rather than syncing -- ' +
+        'dry-run unless yes is also true, since this is an irreversible full wipe of that source.',
       inputSchema: {
         projectRoot: z.string().describe('Absolute path to the repository root'),
+        pruneSource: z.string().optional().describe('Delete every node from this exact source (e.g. "shell:pwsh") instead of syncing'),
+        pruneStaleShell: z
+          .boolean()
+          .optional()
+          .describe('Shortcut for pruneSource on shell:pwsh, shell:bash and shell:zsh at once -- the dead pre-hook scrape sources'),
+        yes: z.boolean().optional().describe('Confirms the delete. Without it, pruneSource/pruneStaleShell only report the matching count.'),
       },
     },
-    async ({ projectRoot }) => {
-      const result = await syncProject({ projectRoot });
+    async ({ projectRoot, pruneSource, pruneStaleShell, yes }) => {
+      const result = await syncProject({ projectRoot, pruneSource, pruneStaleShell, yes });
       return { content: [{ type: 'text', text: result.summary }] };
     },
   );

@@ -37,6 +37,12 @@ export interface SyncOptions {
   noEmbed?: boolean;
   /** Stop the embedding pass after this many nodes. Unset means drain the backlog. */
   embedLimit?: number;
+  /** Wipe every node of this exact source (e.g. `shell:pwsh`) instead of syncing. Dry-run unless `yes` is also set. */
+  pruneSource?: string;
+  /** Shortcut for `pruneSource` on all three dead pre-hook shell-scrape sources at once. Combines with `pruneSource` if both are set. */
+  pruneStaleShell?: boolean;
+  /** Confirms an irreversible `pruneSource`/`pruneStaleShell` delete. Without it, the matching count is printed and nothing is removed. */
+  yes?: boolean;
   quiet: boolean;
   /**
    * Where the final summary goes. Defaults to real stdout for the CLI.
@@ -387,6 +393,90 @@ async function syncDocs(
   return { totals, seen: nodes.length };
 }
 
+/**
+ * The three sources `collectAvailableShellHistory` produced before the
+ * PowerShell hook existed. Nothing has written to them since the hook took
+ * over (it always returns `pwsh-hook` results once installed -- see the
+ * `hookCursor`-driven branch in `syncShell` below), so on a machine with the
+ * hook installed these are pure dead weight with no live collector to diff
+ * against, unlike `docs`.
+ */
+const STALE_SHELL_SOURCES = ['shell:pwsh', 'shell:bash', 'shell:zsh'] as const;
+
+/** Resolves `--prune-source`/`--prune-stale-shell` into a deduplicated list of exact source strings. */
+function collectPruneSources(opts: SyncOptions): string[] {
+  const sources = new Set<string>();
+  if (opts.pruneStaleShell) {
+    for (const source of STALE_SHELL_SOURCES) sources.add(source);
+  }
+  if (opts.pruneSource?.trim()) sources.add(opts.pruneSource.trim());
+  return [...sources];
+}
+
+/**
+ * Handles `--prune-source`/`--prune-stale-shell` as a standalone maintenance
+ * action -- it never falls through into the rest of `runSync`'s ingest
+ * pipeline, so a single invocation either inspects/deletes the named
+ * source(s) or does a normal sync, never both in one run.
+ *
+ * Dry-run by default: without `--yes` this only counts and prints, matching
+ * the user's explicit call that a scoped, easy-to-typo delete needs a shown
+ * number before anything irreversible happens -- unlike `--rebuild`, which
+ * has no such gate because its own name already states the full-project
+ * scope.
+ *
+ * Sweeps `otherProjectIds` (this same sync's own `listOtherProjectIds`
+ * result) in addition to the live `projectId`, not just the live id alone.
+ * Found live, 2026-08-15: this repo's own dead `shell:pwsh` rows were
+ * invisible to a live-id-only prune because they were left stranded under
+ * the pre-rename project id by [[nexusmem-project-id-fragmentation]]'s
+ * reconcile step (deliberately -- see `reconcile.ts`'s doc comment, which
+ * already called this "no different in effect from pruning it" without
+ * anything actually able to reach it). `reconcile.ts` already treats every
+ * id `listOtherProjectIds` returns as a prior identity of this same repo,
+ * never another repository's data (`db` is one file per repo) -- this reuses
+ * that exact invariant rather than inventing a new one.
+ */
+function runPruneSources(
+  store: MemoryStore,
+  projectId: string,
+  otherProjectIds: readonly string[],
+  sources: readonly string[],
+  yes: boolean,
+  out: (chunk: string) => void,
+): number {
+  const scopeIds = [projectId, ...otherProjectIds];
+  const counts = sources.flatMap((source) => scopeIds.map((id) => ({ source, id, count: store.countSourceNodes(id, source) })));
+  const total = counts.reduce((sum, c) => sum + c.count, 0);
+
+  if (total === 0) {
+    out(`${pc.dim('prune-source')} no node(s) match ${sources.join(', ')} -- nothing to do\n`);
+    return 0;
+  }
+
+  const describe = (c: { source: string; id: string; count: number }) =>
+    `  ${pc.dim(c.source)}${c.id !== projectId ? pc.dim(` (prior identity ${c.id.slice(0, 8)})`) : ''}: ${c.count} node(s)`;
+
+  if (!yes) {
+    const lines = counts.filter((c) => c.count > 0).map(describe);
+    out(
+      [`${pc.yellow('would remove')} ${total} node(s):`, ...lines, pc.dim('re-run with --yes to actually delete these -- this cannot be undone'), ''].join(
+        '\n',
+      ),
+    );
+    return 0;
+  }
+
+  // Passing an empty keep-list is a full wipe of the source, not the
+  // incremental prune `syncDocs` above uses it for -- there is no fresh scan
+  // to diff against for a source nothing collects anymore.
+  let removed = 0;
+  for (const { source, id } of counts) removed += store.pruneSourceNodes(id, source, []);
+  const identityPart = otherProjectIds.length > 0 ? `, ${scopeIds.length} project identit${scopeIds.length === 1 ? 'y' : 'ies'}` : '';
+  out(`${pc.green('pruned')} ${removed} node(s) across ${sources.length} source(s)${identityPart}\n`);
+  return 0;
+}
+
 export async function runSync(opts: SyncOptions): Promise<number> {
   const { repo, ws, projectId, config } = await loadContext(opts.cwd);
   const log = (line: string) => {
@@ -446,6 +536,11 @@ export async function runSync(opts: SyncOptions): Promise<number> {
     // Refreshed on every sync, not only at init: a repo initialized before
     // the registry existed, or moved since, is re-pointed by being used.
     await recordProject({ projectId, root: repo.root, dbPath: ws.dbPath, originUrl: repo.originUrl });
+
+    const pruneSources = collectPruneSources(opts);
+    if (pruneSources.length > 0) {
+      return runPruneSources(store, projectId, staleProjectIds, pruneSources, opts.yes ?? false, out);
+    }
 
     const git = await syncGit(store, projectId, opts, repo, config, log);
     const diffs = await syncDiffs(store, projectId, opts, repo, config, log);

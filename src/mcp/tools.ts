@@ -91,6 +91,12 @@ export interface SyncProjectInput {
   projectRoot: string;
   /** Skip the embedding pass for this sync. Mainly for tests; real callers want vectors kept fresh. */
   noEmbed?: boolean;
+  /** Delete every node from this exact source (e.g. `shell:pwsh`) instead of syncing. Dry-run unless `yes` is also set. */
+  pruneSource?: string;
+  /** Shortcut for `pruneSource` on shell:pwsh, shell:bash and shell:zsh at once -- the dead pre-hook scrape sources. */
+  pruneStaleShell?: boolean;
+  /** Confirms an irreversible `pruneSource`/`pruneStaleShell` delete. Without it, the matching count is returned and nothing is removed. */
+  yes?: boolean;
 }
 
 export interface SyncProjectOutput {
@@ -130,6 +136,9 @@ export async function syncProject(input: SyncProjectInput): Promise<SyncProjectO
     rebuild: false,
     quiet: true,
     noEmbed: input.noEmbed,
+    pruneSource: input.pruneSource,
+    pruneStaleShell: input.pruneStaleShell,
+    yes: input.yes,
     out,
   };
   await runSync(opts);

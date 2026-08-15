@@ -9,6 +9,19 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
 
 ## [Unreleased]
 
+### Added
+
+- **`sync --prune-source <name>` and `sync --prune-stale-shell`** — drop one source's nodes without a
+  full `--rebuild`, which loses history that can't be re-read from disk (the shell tail window, older
+  conversation turns). `--prune-stale-shell` is a shortcut for the three dead pre-hook shell-scrape
+  sources (`shell:pwsh`, `shell:bash`, `shell:zsh`) at once. Dry-run by default — prints the matching
+  count and does nothing until `--yes` is also given, since this is an irreversible full wipe of the
+  named source(s), unlike `--rebuild`'s no-prompt full-project reset. Also sweeps any prior project
+  identity of this same repo (the id a renamed git remote leaves behind after
+  `fix(store): reconcile memory stranded by a changed git remote URL` migrates what it can) — a
+  live-id-only prune could not reach nodes reconciliation deliberately left in place. Exposed on both
+  the CLI and the MCP `sync_project` tool.
+
 ## [0.3.1] — 2026-08-15
 
 ### Added

@@ -266,6 +266,14 @@ export class MemoryStore {
     return info.changes;
   }
 
+  /** How many nodes of one source exist for a project. Used to preview a `pruneSourceNodes` wipe before running it. */
+  countSourceNodes(projectId: string, source: string): number {
+    const row = this.db
+      .prepare('SELECT COUNT(*) AS count FROM nodes WHERE project_id = ? AND source = ?')
+      .get(projectId, source) as { count: number };
+    return row.count;
+  }
+
   /**
    * Delete the nodes of one source that its latest full scan did not produce.
    *

@@ -83,6 +83,13 @@ program
   .option('--embed-limit <count>', 'stop embedding after this many nodes (default: embed everything pending)', (v) =>
     Number.parseInt(v, 10),
   )
+  .option('--prune-source <name>', 'delete every node from this exact source (e.g. shell:pwsh) instead of syncing -- dry-run unless --yes is also given')
+  .option(
+    '--prune-stale-shell',
+    'shortcut for --prune-source on shell:pwsh, shell:bash and shell:zsh at once -- the dead pre-hook scrape sources -- dry-run unless --yes is also given',
+    false,
+  )
+  .option('--yes', 'confirm an irreversible --prune-source/--prune-stale-shell delete', false)
   .option('-q, --quiet', 'only print the final summary', false)
   .action((options) =>
     guard(() =>
@@ -95,6 +102,9 @@ program
         conversationOverride: options.conversation ? true : undefined,
         noEmbed: !options.embed,
         embedLimit: options.embedLimit,
+        pruneSource: options.pruneSource,
+        pruneStaleShell: options.pruneStaleShell,
+        yes: options.yes,
         quiet: options.quiet,
       }),
     )(),
