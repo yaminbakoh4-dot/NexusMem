@@ -5,7 +5,7 @@ import { renderContextBlock } from '../retrieval/pack.js';
 import { runCrossProjectQuery, runHybridQuery } from '../retrieval/query-pipeline.js';
 import { openAllProjectSources } from '../retrieval/sources.js';
 import { resolveWorkspace } from '../config/workspace.js';
-import { MemoryStore } from '../store/store.js';
+import { MemoryStore, type RecentNode } from '../store/store.js';
 import { OllamaEmbeddingProvider } from '../vector/embed.js';
 import { runInit } from '../cli/commands/init.js';
 import { runSync, type SyncOptions } from '../cli/commands/sync.js';
@@ -144,6 +144,35 @@ export async function syncProject(input: SyncProjectInput): Promise<SyncProjectO
   await runSync(opts);
 
   return { summary: chunks.join('').trim() };
+}
+
+export interface ListRecentMemoryInput {
+  projectRoot: string;
+  /** Max items to return, newest first. Default 20. */
+  limit?: number;
+}
+
+export interface ListRecentMemoryOutput {
+  items: RecentNode[];
+}
+
+/**
+ * Chronology, not relevance -- "what has this project's memory recorded
+ * lately" rather than "what answers this question" (that's `searchMemory`).
+ * Built for the VS Code extension's sidebar view, which lists rather than
+ * searches.
+ */
+export async function listRecentMemory(input: ListRecentMemoryInput): Promise<ListRecentMemoryOutput> {
+  const repo = await readRepoInfo(input.projectRoot);
+  const ws = resolveWorkspace(repo.root);
+  const projectId = makeProjectId({ root: repo.root, originUrl: repo.originUrl });
+
+  const store = MemoryStore.open(ws.dbPath);
+  try {
+    return { items: store.listRecentNodes(projectId, input.limit) };
+  } finally {
+    store.close();
+  }
 }
 
 export interface GetStatusInput {

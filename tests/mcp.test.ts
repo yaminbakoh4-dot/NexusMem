@@ -8,7 +8,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createServer } from '../src/mcp/server.js';
-import { getStatus, searchMemory, syncProject } from '../src/mcp/tools.js';
+import { getStatus, listRecentMemory, searchMemory, syncProject } from '../src/mcp/tools.js';
 import { MemoryStore } from '../src/store/store.js';
 import { makeProjectId } from '../src/core/project.js';
 import { gitFixture } from './helpers.js';
@@ -147,6 +147,38 @@ describe('mcp tools', () => {
   it('search_memory on an uninitialized project returns no matches instead of throwing', async () => {
     const result = await searchMemory({ projectRoot: repoDir, query: 'anything', noVector: true });
     expect(result.matched).toBe(0);
+  });
+
+  it('list_recent_memory reflects a sync, newest first', async () => {
+    await syncProject({ projectRoot: repoDir, noEmbed: true });
+    writeFileSync(join(repoDir, 'b.txt'), 'x\n');
+    gitFixture(repoDir, ['add', '.']);
+    gitFixture(repoDir, ['commit', '-q', '-m', 'feat: a second, later commit'], {
+      // Explicit, far-future dates rather than relying on wall-clock timing:
+      // git commit dates have 1-second resolution, so two commits made
+      // back-to-back in a fast test run can tie, making ts_epoch ordering
+      // between them undefined instead of actually testing "newest first".
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: 'T',
+        GIT_AUTHOR_EMAIL: 't@example.com',
+        GIT_COMMITTER_NAME: 'T',
+        GIT_COMMITTER_EMAIL: 't@example.com',
+        GIT_AUTHOR_DATE: '2030-01-01T00:00:00+00:00',
+        GIT_COMMITTER_DATE: '2030-01-01T00:00:00+00:00',
+      },
+    });
+    await syncProject({ projectRoot: repoDir, noEmbed: true });
+
+    const result = await listRecentMemory({ projectRoot: repoDir });
+    expect(result.items.length).toBeGreaterThanOrEqual(2);
+    expect(result.items[0]?.title).toContain('a second, later commit');
+  });
+
+  it('list_recent_memory respects limit', async () => {
+    await syncProject({ projectRoot: repoDir, noEmbed: true });
+    const result = await listRecentMemory({ projectRoot: repoDir, limit: 1 });
+    expect(result.items).toHaveLength(1);
   });
 
   it('scopes tool calls to the correct project via projectRoot, not any implicit cwd', async () => {
@@ -295,7 +327,7 @@ describe('mcp server result shaping (protocol round trip)', () => {
       const { tools } = await client.listTools();
       const describing = (name: string) => tools.find((t) => t.name === name)?.description ?? '';
 
-      for (const name of ['search_memory', 'sync_project']) {
+      for (const name of ['search_memory', 'sync_project', 'list_recent_memory']) {
         const description = describing(name).toLowerCase();
         expect(description, `${name} has no description`).not.toBe('');
         for (const source of ['git', 'diff', 'shell', 'docs', 'conversation']) {

@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { readOwnVersion } from '../core/version.js';
-import { getStatus, searchMemory, syncProject } from './tools.js';
+import { getStatus, listRecentMemory, searchMemory, syncProject } from './tools.js';
 
 /**
  * Local-only, stdio-transport MCP server exposing NexusMem's memory to any
@@ -90,6 +90,26 @@ export function createServer(): McpServer {
       return {
         content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
         structuredContent: result as unknown as Record<string, unknown>,
+      };
+    },
+  );
+
+  server.registerTool(
+    'list_recent_memory',
+    {
+      title: 'List recently remembered items',
+      description:
+        'List the most recently remembered items for a NexusMem-tracked repository -- git commits, code diffs, shell commands, tracked docs, and (if enabled) conversation transcripts and session summaries -- newest first. Chronological, not relevance-ranked: use search_memory instead for a specific question.',
+      inputSchema: {
+        projectRoot: z.string().describe('Absolute path to the repository root'),
+        limit: z.number().int().positive().optional().describe('Max items to return, newest first. Default 20.'),
+      },
+    },
+    async ({ projectRoot, limit }) => {
+      const result = await listRecentMemory({ projectRoot, limit });
+      return {
+        content: [{ type: 'text', text: JSON.stringify(result.items, null, 2) }],
+        structuredContent: { items: result.items } as unknown as Record<string, unknown>,
       };
     },
   );

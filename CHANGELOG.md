@@ -11,6 +11,12 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
 
 ### Added
 
+- **`list_recent_memory` MCP tool** — chronological listing of a repository's most recently
+  remembered nodes (git commits, diffs, shell commands, docs, conversation, session summaries),
+  newest first. Distinct from `search_memory`: no query, just "what has this project's memory
+  recorded lately" — built for the VS Code extension's sidebar view, which lists rather than
+  searches. Backed by `MemoryStore.listRecentNodes`, reusing the existing `idx_nodes_project_ts`
+  index.
 - **`sync --prune-source <name>` and `sync --prune-stale-shell`** — drop one source's nodes without a
   full `--rebuild`, which loses history that can't be re-read from disk (the shell tail window, older
   conversation turns). `--prune-stale-shell` is a shortcut for the three dead pre-hook shell-scrape
