@@ -124,6 +124,25 @@ CREATE TABLE node_links (
 CREATE INDEX idx_node_links_from ON node_links (from_node_id);
 `;
 
+const V4 = `
+-- File-to-file structural relationships (currently: JS/TS import edges),
+-- derived from the working tree rather than from any node's content. A
+-- source file is not a node, so this cannot reuse node_links (both of its
+-- columns FK to nodes.id) -- project_id has to be stored here explicitly
+-- since there is no node to join through for it.
+CREATE TABLE file_edges (
+  project_id TEXT NOT NULL,
+  from_path  TEXT NOT NULL,
+  to_path    TEXT NOT NULL,
+  kind       TEXT NOT NULL,
+  PRIMARY KEY (project_id, from_path, to_path, kind)
+);
+
+-- "What imports this file" (e.g. blast-radius of a change) is the query a
+-- future feature needs; the primary key already covers the forward direction.
+CREATE INDEX idx_file_edges_to ON file_edges (project_id, to_path);
+`;
+
 interface Migration {
   version: number;
   up: (db: Database) => void;
@@ -133,6 +152,7 @@ const MIGRATIONS: Migration[] = [
   { version: 1, up: (db) => db.exec(V1) },
   { version: 2, up: (db) => db.exec(V2) },
   { version: 3, up: (db) => db.exec(V3) },
+  { version: 4, up: (db) => db.exec(V4) },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;
