@@ -15,6 +15,12 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
   remote can leave stale data under the old identity; status reports both the identity and node
   counts and points to `sync --prune-source <name>` instead of leaving that data discoverable only
   through a raw SQLite query.
+- **`docs/competitor-comparison.md`: an honest, source-level comparison against `riponcm/projectmem`** (705
+  GitHub stars vs. this project's 8, at time of writing) — a real, working competitor read in full (not
+  judged from its README), covering where the two tools' failure-tracking, import-graph coverage, and
+  token-savings claims genuinely differ. Cites a freshly re-run benchmark (`npm run bench`, not a stale
+  table) alongside projectmem's own `pjm score` constants, read directly from its source. Linked from the
+  README's `## What it costs you` section and a short website section near the existing stats.
 - **`nexusmem hook git install|remove|status`: a real git pre-commit hook.** Installs a marked block into
   `.git/hooks/pre-commit` that runs `nexusmem precheck` (no `--strict`, so it can never block a commit on
   its own) before each commit — the automatic counterpart to the advisory `precheck` command. Refuses to

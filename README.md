@@ -253,6 +253,9 @@ run is the first measurement at the scale that target was always described as ap
 One thing that is not a percentage: shell commands and conversation turns have no cheap `grep`
 equivalent. Without something recording them, they are gone, not merely more expensive to find.
 
+For how these numbers compare to a similar tool's own claims, see
+[`docs/competitor-comparison.md`](docs/competitor-comparison.md).
+
 Latency on a ~530-node corpus, warm, p50 over 10 runs:
 
 | Operation | |
