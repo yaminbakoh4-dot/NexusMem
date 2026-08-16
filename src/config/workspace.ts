@@ -114,6 +114,16 @@ export const ConfigSchema = z.object({
           contextLines: z.number().int().nonnegative().default(3),
         })
         .default({ enabled: true, maxCommits: 200, maxFilesPerCommit: 20, contextLines: 3 }),
+      /**
+       * JS/TS import-graph edges (`file_edges` table), derived from the
+       * working tree. On by default like git/shell/docs: no secrets risk,
+       * just structural relationships between files already tracked in git.
+       */
+      structure: z
+        .object({
+          enabled: z.boolean().default(true),
+        })
+        .default({ enabled: true }),
     })
     .default({
       git: { enabled: true, since: null, includeMerges: true },
@@ -128,6 +138,7 @@ export const ConfigSchema = z.object({
       },
       docs: { enabled: true, include: ['*.md'] },
       diff: { enabled: true, maxCommits: 200, maxFilesPerCommit: 20, contextLines: 3 },
+      structure: { enabled: true },
     }),
   limits: z
     .object({

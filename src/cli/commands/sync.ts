@@ -18,6 +18,7 @@ import { collectAvailableShellHistory } from '../../shell/detect.js';
 import { OllamaChatProvider } from '../../slm/provider.js';
 import { reconcileProjectId } from '../../store/reconcile.js';
 import { MemoryStore, type IngestStats } from '../../store/store.js';
+import { collectFileEdges } from '../../structure/collect.js';
 import { OllamaEmbeddingProvider } from '../../vector/embed.js';
 import { embedPendingNodes } from '../../vector/sync.js';
 import { loadContext } from '../context.js';
@@ -402,6 +403,34 @@ async function syncDocs(
 }
 
 /**
+ * JS/TS import-graph edges (`file_edges`, not `nodes`) -- there is no
+ * `IngestStats` to report since edges aren't MemoryNodes, just a full
+ * replace of the project's `file_edges` snapshot every run, same reasoning
+ * `syncDocs` above documents for why a full re-scan is safe here too (no
+ * incremental cursor for "which files' imports changed").
+ */
+async function syncStructure(
+  store: MemoryStore,
+  projectId: string,
+  repoRoot: string,
+  config: Awaited<ReturnType<typeof loadContext>>['config'],
+  log: (line: string) => void,
+): Promise<{ edges: number; filesScanned: number }> {
+  if (!config.sources.structure.enabled) {
+    log(`${pc.dim('structure')} disabled in config`);
+    return { edges: 0, filesScanned: 0 };
+  }
+
+  const { edges, filesScanned, unreadable } = await collectFileEdges(repoRoot);
+  store.replaceFileEdges(projectId, edges);
+
+  const skippedPart = unreadable.length > 0 ? `, ${unreadable.length} unreadable (skipped)` : '';
+  log(`  ${pc.dim(`structure: ${edges.length} edge(s) from ${filesScanned} file(s)`)}${pc.dim(skippedPart)}`);
+
+  return { edges: edges.length, filesScanned };
+}
+
+/**
  * The three sources `collectAvailableShellHistory` produced before the
  * PowerShell hook existed. Nothing has written to them since the hook took
  * over (it always returns `pwsh-hook` results once installed -- see the
@@ -564,6 +593,7 @@ export async function runSync(opts: SyncOptions): Promise<number> {
     const conversation = syncConversation(store, projectId, turns, config, log, opts.conversationOverride);
     const sessions = await syncSessions(store, projectId, turns, config, log);
     const docs = await syncDocs(store, projectId, repo.root, config, log);
+    const structure = await syncStructure(store, projectId, repo.root, config, log);
 
     let embedLine = '';
     if (!opts.noEmbed) {
@@ -618,10 +648,11 @@ export async function runSync(opts: SyncOptions): Promise<number> {
     const sessionPart = config.sources.session.enabled ? `, ${sessions.seen} session summar${sessions.seen === 1 ? 'y' : 'ies'}` : '';
     const docsPart = config.sources.docs.enabled ? `, ${docs.seen} doc section(s)` : '';
     const diffPart = config.sources.diff.enabled ? `, ${diffs.seen} file diff(s)` : '';
+    const structurePart = config.sources.structure.enabled ? `, ${structure.edges} import edge(s)` : '';
 
     out(
       [
-        `${pc.green('synced')} ${git.seen} commit(s)${diffPart}, ${shell.seen} shell entr${shell.seen === 1 ? 'y' : 'ies'}${conversationPart}${sessionPart}${docsPart} in ${elapsed}s`,
+        `${pc.green('synced')} ${git.seen} commit(s)${diffPart}, ${shell.seen} shell entr${shell.seen === 1 ? 'y' : 'ies'}${conversationPart}${sessionPart}${docsPart}${structurePart} in ${elapsed}s`,
         `  ${pc.green(`+${totals.inserted} new`)}  ${pc.yellow(`~${totals.updated} updated`)}  ${pc.dim(`=${totals.unchanged} unchanged`)}`,
         `  ${pc.dim(`${stats.total} node(s) total across ${stats.distinctFiles} file path(s)`)}`,
         '',

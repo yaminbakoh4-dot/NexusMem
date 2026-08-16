@@ -16,6 +16,7 @@ import { runScanDocs } from './commands/scan-docs.js';
 import { runScanGit } from './commands/scan-git.js';
 import { runScanSession, SCAN_SESSION_DEFAULT_MODEL } from './commands/scan-session.js';
 import { runScanShell } from './commands/scan-shell.js';
+import { runScanStructure } from './commands/scan-structure.js';
 import { runStatus } from './commands/status.js';
 import { runSync } from './commands/sync.js';
 
@@ -271,6 +272,13 @@ program
   .option('--min-signal <score>', 'drop nodes below this signal', (v) => Number.parseFloat(v), 0)
   .option('--json', 'emit MemoryNodes as JSON on stdout', false)
   .action((options) => guard(() => runScanDocs({ cwd: options.cwd, minSignal: options.minSignal, json: options.json }))());
+
+program
+  .command('scan-structure')
+  .description('Preview the JS/TS import-graph edges a sync would produce (writes nothing)')
+  .option('-C, --cwd <path>', 'repository path', process.cwd())
+  .option('--json', 'emit edges as JSON on stdout', false)
+  .action((options) => guard(() => runScanStructure({ cwd: options.cwd, json: options.json }))());
 
 program
   .command('mcp')

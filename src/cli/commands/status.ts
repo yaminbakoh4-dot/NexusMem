@@ -38,6 +38,7 @@ export async function runStatus(opts: StatusOptions): Promise<number> {
     const chains = getChainStats(store, projectId);
     const otherProjectIds = store.listOtherProjectIds(projectId);
     const otherProjectNodes = store.countProjectNodes(otherProjectIds);
+    const structure = store.fileEdgeStats(projectId);
 
     // WAL content counts towards what is actually on disk.
     const dbBytes = fileSize(ws.dbPath) + fileSize(`${ws.dbPath}-wal`);
@@ -79,6 +80,7 @@ export async function runStatus(opts: StatusOptions): Promise<number> {
               chains.resolvedTotal < chains.failuresTotal ? ` — run ${pc.bold('nexusmem sync --link-failures')} to link more` : ''
             }`
           : '',
+        structure.edges ? `${pc.dim('structure')} ${pc.bold(String(structure.edges))} import edge(s) across ${structure.files} file(s)` : '',
       ]
         .filter((line) => line !== '')
         .join('\n')
