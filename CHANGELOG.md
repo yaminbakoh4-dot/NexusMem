@@ -9,6 +9,13 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
 
 ## [Unreleased]
 
+### Added
+
+- **`nexusmem status` now warns when prior project identities still hold nodes.** A renamed git
+  remote can leave stale data under the old identity; status reports both the identity and node
+  counts and points to `sync --prune-source <name>` instead of leaving that data discoverable only
+  through a raw SQLite query.
+
 ## [0.3.3] — 2026-08-16
 
 ### Added
