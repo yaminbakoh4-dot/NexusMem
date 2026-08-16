@@ -15,6 +15,16 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
   remote can leave stale data under the old identity; status reports both the identity and node
   counts and points to `sync --prune-source <name>` instead of leaving that data discoverable only
   through a raw SQLite query.
+- **`nexusmem hook git install|remove|status`: a real git pre-commit hook.** Installs a marked block into
+  `.git/hooks/pre-commit` that runs `nexusmem precheck` (no `--strict`, so it can never block a commit on
+  its own) before each commit — the automatic counterpart to the advisory `precheck` command. Refuses to
+  touch a pre-existing foreign hook (husky, lint-staged, lefthook, ...) unless `--force` is passed, in which
+  case it appends after the existing content rather than before, so the foreign hook still runs first and
+  keeps deciding whatever it already decided. Idempotent (`nexusmem hook git install` twice is a no-op) and
+  removable cleanly, including restoring a foreign hook to its original content if one was appended onto.
+  Live-verified against a real scratch git repo on Windows: fresh install, a real `git commit` that
+  triggered the hook and printed a correct precheck report, clean removal, and both the refuse-without-force
+  and append-with-force foreign-hook paths.
 - **`nexusmem precheck`: proactive pre-commit warnings.** Checks staged (or `--working`, or explicit `--files`)
   files against project memory and warns about unresolved past failures and high recent churn *before* you
   commit — advisory by default (always exits 0; `--strict` turns an unresolved failure into a non-zero exit).
