@@ -5,6 +5,8 @@ import { readOwnVersion } from '../core/version.js';
 import { GitCrashError, GitSpawnError } from '../git/exec.js';
 import { NotAGitRepositoryError } from '../git/repo.js';
 import { ProfileNotFoundError } from '../hooks/install.js';
+import { ForeignGitHookError } from '../hooks/install-git-precommit.js';
+import { runHookGitInstall, runHookGitRemove, runHookGitStatus } from './commands/hook-git.js';
 import { runHookInstall, runHookRemove, runHookStatus } from './commands/hook.js';
 import { runInit } from './commands/init.js';
 import { runProjects } from './commands/projects.js';
@@ -32,7 +34,8 @@ function isExpected(err: unknown): err is Error {
     // (antivirus, a bad install). Actionable, and not our stack to print.
     err instanceof GitCrashError ||
     err instanceof ConfigError ||
-    err instanceof ProfileNotFoundError
+    err instanceof ProfileNotFoundError ||
+    err instanceof ForeignGitHookError
   );
 }
 
@@ -138,6 +141,29 @@ program
       .description('Show whether the hook is installed')
       .option('--profile <path>', 'override the auto-detected $PROFILE path')
       .action((options) => guard(() => runHookStatus({ profile: options.profile }))()),
+  )
+  .addCommand(
+    new Command('git')
+      .description('Manage the opt-in git pre-commit hook that runs `nexusmem precheck` before each commit')
+      .addCommand(
+        new Command('install')
+          .description('Install (or update) the hook in .git/hooks/pre-commit')
+          .option('-C, --cwd <path>', 'repository path', process.cwd())
+          .option('--force', 'append after an existing foreign pre-commit hook instead of refusing', false)
+          .action((options) => guard(() => runHookGitInstall({ cwd: options.cwd, force: options.force }))()),
+      )
+      .addCommand(
+        new Command('remove')
+          .description("Remove nexusmem's block from .git/hooks/pre-commit")
+          .option('-C, --cwd <path>', 'repository path', process.cwd())
+          .action((options) => guard(() => runHookGitRemove({ cwd: options.cwd }))()),
+      )
+      .addCommand(
+        new Command('status')
+          .description('Show whether the git pre-commit hook is installed')
+          .option('-C, --cwd <path>', 'repository path', process.cwd())
+          .action((options) => guard(() => runHookGitStatus({ cwd: options.cwd }))()),
+      ),
   );
 
 program
