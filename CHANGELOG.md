@@ -9,6 +9,15 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
 
 ## [Unreleased]
 
+### Added
+
+- **`nexusmem status` now shows failure→fix chain counts** — `N/M failure(s) resolved (X retry, Y
+  discussion)`, plus a hint to run `sync --link-failures` when failures remain unresolved. The
+  chain feature is this project's most distinctive capability, but was previously invisible to
+  anyone who didn't already know to query `node_links` directly. Backed by the new
+  `getChainStats` in `src/correlate/failure-fix.ts`, which dedupes failures resolved by both
+  heuristics rather than double-counting them.
+
 ### Fixed
 
 - **Discussion-bridge heuristic (`sync --link-failures`): corpus-relative boilerplate tokens no

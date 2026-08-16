@@ -1,5 +1,6 @@
 import { statSync } from 'node:fs';
 import pc from 'picocolors';
+import { getChainStats } from '../../correlate/failure-fix.js';
 import { MemoryStore } from '../../store/store.js';
 import { currentSchemaVersion, LATEST_SCHEMA_VERSION } from '../../store/schema.js';
 import { loadContext } from '../context.js';
@@ -31,6 +32,7 @@ export async function runStatus(opts: StatusOptions): Promise<number> {
     const sources = store.listSyncState(projectId);
     const gitCursor = sources.find((s) => s.source === 'git')?.cursor ?? null;
     const schema = currentSchemaVersion(store.raw);
+    const chains = getChainStats(store, projectId);
 
     // WAL content counts towards what is actually on disk.
     const dbBytes = fileSize(ws.dbPath) + fileSize(`${ws.dbPath}-wal`);
@@ -59,6 +61,11 @@ export async function runStatus(opts: StatusOptions): Promise<number> {
         }),
         gitCursor && gitCursor !== repo.head ? `${pc.yellow('git behind HEAD')} — run ${pc.bold('nexusmem sync')}` : '',
         '',
+        chains.failuresTotal
+          ? `${pc.dim('chains  ')} ${pc.bold(String(chains.resolvedTotal))}/${chains.failuresTotal} failure(s) resolved ${pc.dim(`(${chains.resolvedByRetry} retry, ${chains.resolvedByDiscussion} discussion)`)}${
+              chains.resolvedTotal < chains.failuresTotal ? ` — run ${pc.bold('nexusmem sync --link-failures')} to link more` : ''
+            }`
+          : '',
       ]
         .filter((line) => line !== '')
         .join('\n')

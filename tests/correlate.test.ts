@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { correlateFailures, RESOLVED_BY_DISCUSSION, RESOLVED_BY_RETRY } from '../src/correlate/failure-fix.js';
+import { correlateFailures, getChainStats, RESOLVED_BY_DISCUSSION, RESOLVED_BY_RETRY } from '../src/correlate/failure-fix.js';
 import type { MemoryNode } from '../src/core/types.js';
 import { MemoryStore } from '../src/store/store.js';
 
@@ -223,5 +223,97 @@ describe('correlateFailures', () => {
     correlateFailures(store, PROJECT);
 
     expect(store.getLinkedNodeIds('fail', RESOLVED_BY_RETRY)).toEqual(['retry']);
+  });
+});
+
+/**
+ * `getChainStats` is what `nexusmem status` reads to surface the failure->fix
+ * chain feature -- Phase 9's moat-visibility work (ROADMAP.local.md), making
+ * an otherwise-invisible internal capability visible to anyone running the
+ * CLI, not just someone who already knows to query `node_links` by hand.
+ */
+describe('getChainStats', () => {
+  let dir: string;
+  let store: MemoryStore;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'nexusmem-chainstats-'));
+    store = MemoryStore.open(join(dir, 'memory.db'));
+  });
+
+  afterEach(() => {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('reports all zeros for a project with no recorded failures', () => {
+    expect(getChainStats(store, PROJECT)).toEqual({
+      failuresTotal: 0,
+      resolvedByRetry: 0,
+      resolvedByDiscussion: 0,
+      resolvedTotal: 0,
+    });
+  });
+
+  it('counts a failure as unresolved until correlateFailures actually links it', () => {
+    store.upsertNodes([shellNode('fail', { ts: T0, command: 'npm test', exitCode: 1 })]);
+
+    expect(getChainStats(store, PROJECT)).toEqual({
+      failuresTotal: 1,
+      resolvedByRetry: 0,
+      resolvedByDiscussion: 0,
+      resolvedTotal: 0,
+    });
+  });
+
+  it('counts resolvedTotal once per failure even when both heuristics link the same one (not double-counted)', () => {
+    store.upsertNodes([
+      shellNode('fail', { ts: T0, command: 'npm test', exitCode: 1 }),
+      shellNode('retry', { ts: T0 + HOUR, command: 'npm test', exitCode: 0 }),
+      conversationNode('discussion', { ts: T0 + 2 * HOUR, body: 'Q: npm test is failing\n\nA: found it' }),
+    ]);
+
+    correlateFailures(store, PROJECT);
+
+    expect(getChainStats(store, PROJECT)).toEqual({
+      failuresTotal: 1,
+      resolvedByRetry: 1,
+      resolvedByDiscussion: 1,
+      resolvedTotal: 1, // discriminating: one failure, two links, must not report resolvedTotal: 2
+    });
+  });
+
+  it('distinguishes failures resolved by retry from those resolved by discussion', () => {
+    store.upsertNodes([
+      shellNode('fail-a', { ts: T0, command: 'npm test', exitCode: 1 }),
+      shellNode('retry-a', { ts: T0 + HOUR, command: 'npm test', exitCode: 0 }),
+      shellNode('fail-b', { ts: T0, command: 'npm run typecheck', exitCode: 2, cwd: '/repo-b' }),
+      conversationNode('discussion-b', { ts: T0 + HOUR, body: 'Q: why does npm run typecheck fail\n\nA: a stray import' }),
+      shellNode('fail-c', { ts: T0, command: 'npm run build', exitCode: 1, cwd: '/repo-c' }), // discriminating: left unresolved
+    ]);
+
+    correlateFailures(store, PROJECT);
+
+    expect(getChainStats(store, PROJECT)).toEqual({
+      failuresTotal: 3,
+      resolvedByRetry: 1,
+      resolvedByDiscussion: 1,
+      resolvedTotal: 2,
+    });
+  });
+
+  it('scopes counts to the given project, not the whole database', () => {
+    store.upsertNodes([
+      shellNode('fail', { ts: T0, command: 'npm test', exitCode: 1 }),
+      shellNode('retry', { ts: T0 + HOUR, command: 'npm test', exitCode: 0 }),
+    ]);
+    correlateFailures(store, PROJECT);
+
+    expect(getChainStats(store, 'proj-other')).toEqual({
+      failuresTotal: 0,
+      resolvedByRetry: 0,
+      resolvedByDiscussion: 0,
+      resolvedTotal: 0,
+    });
   });
 });

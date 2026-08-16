@@ -219,3 +219,54 @@ export function correlateFailures(store: MemoryStore, projectId: string, opts: C
 
   return { failuresExamined: failures.length, linkedByRetry, linkedByDiscussion };
 }
+
+export interface ChainStats {
+  /** Every failed `shell_command` node this project has ever recorded, linked or not. */
+  failuresTotal: number;
+  /** Distinct failures with at least one `resolved_by:retry` link. */
+  resolvedByRetry: number;
+  /** Distinct failures with at least one `resolved_by:discussion` link. */
+  resolvedByDiscussion: number;
+  /** Distinct failures resolved by either heuristic -- the headline "chains built" number. */
+  resolvedTotal: number;
+}
+
+/**
+ * Read-only summary of what `correlateFailures` has built so far, for
+ * `nexusmem status` -- the failure->fix chain feature is this project's one
+ * genuinely hard-to-copy capability (see ROADMAP.local.md's Phase 9), and
+ * before this it was invisible to anyone who didn't already know to query
+ * `node_links` directly. Counts what already exists; running `sync
+ * --link-failures` is what grows these numbers, not this function.
+ */
+export function getChainStats(store: MemoryStore, projectId: string): ChainStats {
+  const db = store.raw;
+
+  const failuresTotal = (
+    db
+      .prepare(
+        `SELECT COUNT(*) AS c FROM nodes
+         WHERE project_id = ? AND kind = 'shell_command'
+           AND json_extract(meta, '$.exitCode') IS NOT NULL AND json_extract(meta, '$.exitCode') != 0`,
+      )
+      .get(projectId) as { c: number }
+  ).c;
+
+  const countDistinctLinked = (relations: string[]): number =>
+    (
+      db
+        .prepare(
+          `SELECT COUNT(DISTINCT nl.from_node_id) AS c
+           FROM node_links nl JOIN nodes n ON n.id = nl.from_node_id
+           WHERE n.project_id = ? AND nl.relation IN (${relations.map(() => '?').join(', ')})`,
+        )
+        .get(projectId, ...relations) as { c: number }
+    ).c;
+
+  return {
+    failuresTotal,
+    resolvedByRetry: countDistinctLinked([RESOLVED_BY_RETRY]),
+    resolvedByDiscussion: countDistinctLinked([RESOLVED_BY_DISCUSSION]),
+    resolvedTotal: countDistinctLinked([RESOLVED_BY_RETRY, RESOLVED_BY_DISCUSSION]),
+  };
+}
