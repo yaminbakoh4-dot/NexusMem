@@ -154,6 +154,16 @@ export class MemoryStore {
     );
   }
 
+  /** Total nodes held under the given project identities. */
+  countProjectNodes(projectIds: readonly string[]): number {
+    if (projectIds.length === 0) return 0;
+    const placeholders = projectIds.map(() => '?').join(', ');
+    const row = this.db
+      .prepare(`SELECT COUNT(*) AS n FROM nodes WHERE project_id IN (${placeholders})`)
+      .get(...projectIds) as { n: number };
+    return row.n;
+  }
+
   /**
    * Write a batch of nodes in one transaction.
    *
