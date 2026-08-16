@@ -87,6 +87,39 @@ It wraps your existing PowerShell prompt rather than replacing it, is idempotent
 Exit codes are what make this worth installing. A failed command is a stronger signal than a
 successful one, and without the hook there is no way to tell them apart.
 
+## Failure → fix chains (opt-in)
+
+```bash
+nexusmem sync --link-failures
+```
+
+After a normal sync, this walks every failed `shell_command` (non-zero exit code) and looks for
+whatever later resolved it, using two independent heuristics: a later command in the same project
+and working directory, exact same normalized text, that exited `0` within 24h (**same-command
+retry**); and, separately, the best full-text match among nearby conversation turns or session
+summaries (**conversation bridge**). A failure can be linked by either, both, or neither.
+
+Only the retry link is ever surfaced in query results. Dogfooded against this repo's own real
+history, the retry heuristic was correct on every link checked by hand; the conversation-bridge
+heuristic was wrong on roughly half, since a discussion sharing a few words with the failing command
+can outrank one that's actually about it. It is still recorded — kept in the database for a future,
+tighter version — just not shown.
+
+When a retry-linked failure appears in a result set, its fix rides along immediately after it,
+inheriting the failure's own relevance score rather than needing to match the query on its own
+merits. That is the point: a query about why something failed shouldn't need to separately guess the
+words used in whatever fixed it.
+
+```
+$ nexusmem query "why did npm whoami fail"
+
+- 2026-08-12 shell: npm whoami  (exit 1)
+- 2026-08-12 shell: npm login   (exit 0)  -- linked as the fix
+```
+
+Same-project only for now; a failure resolved by a command in a different project (checked via
+`query --all-projects`) won't chain across the boundary yet.
+
 ## How retrieval works
 
 Every source normalizes to the same `MemoryNode` shape, so a commit, a shell command and a docs
@@ -293,8 +326,9 @@ is the intended way to tune scoring against a real repository before committing 
 `--json` to pipe them somewhere.
 
 Every command takes `-C <path>` to target another repository. On `sync`, `--conversation` opts the
-transcript source in for one run without persisting it, `--no-embed` skips the vector pass, and
-`--rebuild` drops the project's nodes and re-ingests from scratch.
+transcript source in for one run without persisting it, `--no-embed` skips the vector pass,
+`--link-failures` builds the failure → fix chains described above, and `--rebuild` drops the
+project's nodes and re-ingests from scratch.
 
 ## Recall across projects
 
