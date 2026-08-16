@@ -1,4 +1,4 @@
-import { toMatchQuery } from '../store/fts.js';
+import { toStrictMatchQuery } from '../store/fts.js';
 import type { MemoryStore } from '../store/store.js';
 
 /**
@@ -15,12 +15,17 @@ import type { MemoryStore } from '../store/store.js';
  *   construction, low recall: a fix that changes the command itself (a typo
  *   correction, an added flag) is invisible to an exact-text match. Not
  *   attempted here -- fuzzy matching is a stretch goal, not this pass's job.
- * - **Conversation bridge.** The best FTS match (via the same `toMatchQuery`
- *   the search path already uses) among `conversation_turn`/`session_summary`
- *   nodes in the following `discussionWindowMs`, searched on the failing
- *   command's own text. Loose by construction (`toMatchQuery` is an OR of
- *   prefix-matched tokens, not a phrase match) -- a discussion that merely
- *   shares a few words with the command can outrank a more specific one.
+ * - **Conversation bridge.** The best FTS match (via `toStrictMatchQuery`,
+ *   an AND of every significant token in the failing command) among
+ *   `conversation_turn`/`session_summary` nodes in the following
+ *   `discussionWindowMs`. Originally used `toMatchQuery` (OR-of-tokens) and
+ *   was dogfooded against this repo's real history 2026-08-15: roughly half
+ *   the links were wrong, and the confirmed false positives were all driven
+ *   by a single shared generic token (e.g. an "npm whoami" failure linked to
+ *   an unrelated summary that just happens to mention "npm"). Tightened to
+ *   AND -- still loose in the other direction, since a discussion that
+ *   paraphrases the command instead of naming its words will not match, but
+ *   an unvalidated false positive is worse than a missed true positive here.
  *   Does not chain further to whatever commit that conversation might cite;
  *   linking failure -> discussion is the whole claim this heuristic makes.
  */
@@ -118,7 +123,7 @@ export function correlateFailures(store: MemoryStore, projectId: string, opts: C
       linkedByRetry += 1;
     }
 
-    const match = toMatchQuery(failure.command);
+    const match = toStrictMatchQuery(failure.command);
     if (match) {
       const discussion = findDiscussion.get(match, projectId, failure.ts_epoch, failure.ts_epoch + discussionWindowMs) as
         | { id: string }

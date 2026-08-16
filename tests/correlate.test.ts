@@ -120,6 +120,21 @@ describe('correlateFailures', () => {
     expect(store.getLinkedNodeIds('fail', RESOLVED_BY_DISCUSSION)).toEqual(['discussion']);
   });
 
+  it('does not link a discussion that shares only one generic token with the command (the real dogfooding false positive)', () => {
+    store.upsertNodes([
+      shellNode('fail', { ts: T0, command: 'npm whoami', exitCode: 1 }),
+      conversationNode('unrelated', {
+        ts: T0 + HOUR,
+        body: 'Updated NexusMem versioning strategy using npm commands (npx, npm install -g)',
+      }),
+    ]);
+
+    const stats = correlateFailures(store, PROJECT);
+
+    expect(stats.linkedByDiscussion).toBe(0); // discriminating: shares "npm" only, nothing else
+    expect(store.getLinkedNodeIds('fail', RESOLVED_BY_DISCUSSION)).toEqual([]);
+  });
+
   it('does not link a discussion outside the configured discussion window', () => {
     store.upsertNodes([
       shellNode('fail', { ts: T0, command: 'npm run typecheck', exitCode: 2 }),

@@ -22,6 +22,21 @@ const FTS_SYNTAX = /["'()*:^{}[\]-]/g;
  */
 const LOW_SIGNAL_TOKENS = new Set(['id']);
 
+function significantTokens(input: string): string[] {
+  const tokens = input
+    .replace(FTS_SYNTAX, ' ')
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length > 0);
+
+  if (tokens.length === 0) return [];
+
+  // Drop low-signal tokens, but never down to zero: a query that is only
+  // "id" must still search for something rather than matching nothing.
+  const signal = tokens.filter((t) => !LOW_SIGNAL_TOKENS.has(t.toLowerCase()));
+  return signal.length > 0 ? signal : tokens;
+}
+
 /**
  * Turn free-form user text into a safe FTS5 MATCH expression.
  *
@@ -30,18 +45,27 @@ const LOW_SIGNAL_TOKENS = new Set(['id']);
  * then rewards the nodes that matched more of them.
  */
 export function toMatchQuery(input: string): string | null {
-  const tokens = input
-    .replace(FTS_SYNTAX, ' ')
-    .split(/\s+/)
-    .map((t) => t.trim())
-    .filter((t) => t.length > 0);
-
-  if (tokens.length === 0) return null;
-
-  // Drop low-signal tokens, but never down to zero: a query that is only
-  // "id" must still search for something rather than matching nothing.
-  const signal = tokens.filter((t) => !LOW_SIGNAL_TOKENS.has(t.toLowerCase()));
-  const kept = signal.length > 0 ? signal : tokens;
+  const kept = significantTokens(input);
+  if (kept.length === 0) return null;
 
   return kept.map((t) => `"${t}"*`).join(' OR ');
+}
+
+/**
+ * Same tokenization as `toMatchQuery`, but AND-ed rather than OR-ed --
+ * every significant token must appear for a match. Built for
+ * `failure-fix.ts`'s discussion-bridge heuristic, which found (dogfooding
+ * against this repo's real history) that a single shared generic token was
+ * enough to link a failure to a wholly unrelated discussion, e.g. an
+ * "npm whoami" failure matched to a summary that merely mentions "npm" in
+ * passing. Requiring every token cuts recall -- a discussion that paraphrases
+ * the command instead of naming it will not match -- but a false positive
+ * here silently attaches the wrong "fix" to a real failure, which is worse
+ * than finding none.
+ */
+export function toStrictMatchQuery(input: string): string | null {
+  const kept = significantTokens(input);
+  if (kept.length === 0) return null;
+
+  return kept.map((t) => `"${t}"*`).join(' AND ');
 }
