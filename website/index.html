@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>NexusMem — local-first memory for AI coding agents</title>
+<meta name="description" content="NexusMem records shell commands with exit codes, git history down to the patch, docs and optional assistant transcripts into a local SQLite database, and serves back a ranked, token-budgeted slice on demand. No account, no cloud, no telemetry." />
+
+<meta property="og:type" content="website" />
+<meta property="og:title" content="NexusMem — local-first memory for AI coding agents" />
+<meta property="og:description" content="Your coding agent can read git log. It cannot read the four things you tried last Tuesday that didn't work." />
+<meta property="og:image" content="https://nexusmem.dev/assets/demo.gif" />
+<meta property="og:url" content="https://nexusmem.dev/" />
+<meta name="twitter:card" content="summary_large_image" />
+
+<link rel="icon" href="assets/icon.png" />
+<link rel="apple-touch-icon" href="assets/icon.png" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<nav class="site-nav">
+  <div class="wrap">
+    <a class="brand" href="#top">
+      <img src="assets/icon.png" alt="" />
+      NexusMem
+    </a>
+    <div class="nav-links">
+      <a href="#features"><span class="label">Features</span></a>
+      <a href="#quickstart"><span class="label">Quickstart</span></a>
+      <a href="#breaks"><span class="label">Where it breaks</span></a>
+      <a href="https://github.com/yaminbkk/NexusMem" target="_blank" rel="noopener">GitHub</a>
+      <a class="btn btn-primary" href="https://github.com/yaminbkk/NexusMem" target="_blank" rel="noopener">Star</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero" id="top">
+  <div class="wrap">
+    <span class="eyebrow">open source · local-first · MIT</span>
+    <h1>Your agent can read <code>git log</code>.<br />
+      <span class="dim">It can't read the four things you tried last Tuesday that didn't work.</span></h1>
+    <p class="lede">
+      NexusMem records what actually happened on your machine — shell commands and their exit
+      codes, git history down to the patch of each changed file, project docs, optionally your
+      assistant transcripts — into a local SQLite database, and serves back a ranked,
+      token-budgeted slice of it on demand. Everything stays on disk. No account, no cloud, no
+      telemetry.
+    </p>
+    <div class="hero-actions">
+      <a class="btn btn-primary" href="#quickstart">Get started</a>
+      <a class="btn btn-secondary" href="https://github.com/yaminbkk/NexusMem" target="_blank" rel="noopener">View on GitHub</a>
+    </div>
+    <div class="code-block install-block">
+      <div class="code-head">
+        <span>shell</span>
+        <button class="copy-btn" data-copy="npx nexusmem init&#10;npx nexusmem sync">copy</button>
+      </div>
+      <pre><span class="comment"># from inside any git repository</span>
+npx nexusmem init
+npx nexusmem sync</pre>
+    </div>
+  </div>
+</header>
+
+<section id="demo">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="kicker">See it work</div>
+      <h2>Real output, this repo's own history</h2>
+      <p>Init, sync, status, and a query — recorded against NexusMem's own repository.</p>
+    </div>
+    <div class="demo-frame">
+      <img src="assets/demo.gif" alt="Terminal recording of nexusmem init, sync, status, and query commands run against this repo's own history" loading="lazy" />
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="section-head">
+      <div class="kicker">One query, two sources</div>
+      <h2>A commit and a docs section, ranked against each other</h2>
+      <p>Nothing here is summarized by a model on the way out. The ranker just decides what not to send.</p>
+    </div>
+    <div class="terminal">
+      <div class="code-head">
+        <div class="dots"><span></span><span></span><span></span></div>
+        <span>nexusmem query</span>
+      </div>
+      <pre><span class="prompt">$</span> nexusmem query "windows spawn failure"
+
+<span class="muted">Relevant history for: windows spawn failure</span>
+
+<span class="hit-title">- 2026-08-09 fix: distinguish a failed git spawn from "not a git repository"</span>
+  readRepoInfo collapsed three unrelated failures into one error: git
+  running and reporting the path is not a work tree, git not being
+  installed, and the process failing to spawn at all. Dogfooding hit
+  the third case in two separate sessions...
+
+<span class="hit-title">- 2026-08-09 README.md — Before a tagged release</span>
+  - [ ] Retry on transient process-spawn failures on Windows</pre>
+    </div>
+  </div>
+</section>
+
+<section id="features">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="kicker">What it tracks</div>
+      <h2>Every source normalizes to the same shape</h2>
+      <p>A commit, a shell command and a docs section compete on equal terms — BM25 and vector search, fused by rank.</p>
+    </div>
+    <div class="grid">
+      <div class="card">
+        <div class="icon">$_</div>
+        <h3>Shell history + exit codes</h3>
+        <p>A PSReadLine-first hook captures working directory, exit code and a real timestamp. A failed command is a stronger signal than a successful one.</p>
+      </div>
+      <div class="card">
+        <div class="icon">◆</div>
+        <h3>Git commits &amp; diffs</h3>
+        <p>Full commit history plus the patch of each changed file — what shipped, down to the lines that changed.</p>
+      </div>
+      <div class="card">
+        <div class="icon">▤</div>
+        <h3>Project docs</h3>
+        <p>Markdown chunked at heading boundaries. Ask why a decision was made and get the actual rationale section back.</p>
+      </div>
+      <div class="card">
+        <div class="icon">⤳</div>
+        <h3>Failure → fix chains</h3>
+        <p>Opt-in. Links a failed command to whatever later resolved it, so its fix rides along in the same result automatically.</p>
+      </div>
+      <div class="card">
+        <div class="icon">⌘</div>
+        <h3>Session summaries</h3>
+        <p>Opt-in, local Ollama model, ingest time only. One distilled node — what was decided and why — next to the raw exchanges.</p>
+      </div>
+      <div class="card">
+        <div class="icon">⇄</div>
+        <h3>Cross-project recall</h3>
+        <p><code>query --all-projects</code> searches every repo you've synced, tagged by source. Off by default, scoped when off.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="stats">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="kicker">What it costs you</div>
+      <h2>Two numbers, kept apart on purpose</h2>
+      <p>End-to-end saving compares the packed context NexusMem sends against reading, in full, the files its own ranking identified as relevant.</p>
+    </div>
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="num">95%</div>
+        <div class="label">token saving vs. full file content</div>
+        <div class="sub">this repo — 62 commits, 16 real prompts</div>
+      </div>
+      <div class="stat-card">
+        <div class="num">99%</div>
+        <div class="label">token saving vs. full file content</div>
+        <div class="sub">vitejs/vite — 9,567 commits, mechanically sampled</div>
+      </div>
+    </div>
+    <p class="caveat">
+      Both clear the original &gt;70% target, measured with a reproducible script
+      (<a href="https://github.com/yaminbkk/NexusMem/blob/master/scripts/benchmark.ts" target="_blank" rel="noopener"><code>scripts/benchmark.ts</code></a>) anyone can re-run.
+      The file set each query is graded against comes from NexusMem's own ranking, not an
+      independent judge — this measures what packing saves once retrieval already picked a
+      candidate set, not whether that set was the right one. Full methodology in the README.
+    </p>
+    <table class="latency">
+      <thead>
+        <tr><th>Operation, ~530-node corpus, warm p50</th><th>Time</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>BM25 retrieval (FTS5)</td><td>~1.1 ms</td></tr>
+        <tr><td>Vector KNN (sqlite-vec)</td><td>~3.2 ms</td></tr>
+        <tr><td>Fuse, rank, pack</td><td>~0.6 ms</td></tr>
+        <tr><td>Query embedding (local Ollama)</td><td>~55–77 ms</td></tr>
+        <tr><td>End-to-end hybrid</td><td>~56 ms</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="honesty" id="breaks">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="kicker">Read before you trust it</div>
+      <h2>Where it breaks</h2>
+      <p>Stated plainly, same as the README — including the parts that make the pitch look worse.</p>
+    </div>
+    <div class="honesty-list">
+      <div class="honesty-item">
+        <span class="mark">▲</span>
+        <p><strong>Shell history without the hook is unscoped.</strong> Scraped history has no directory context and is attributed to whichever repo you ran <code>sync</code> from — a tail-window approximation, not a guarantee.</p>
+      </div>
+      <div class="honesty-item">
+        <span class="mark">▲</span>
+        <p><strong>Japanese and Chinese depend on the vector pass.</strong> FTS5's tokenizer splits on whitespace, so languages without space boundaries get no useful BM25 recall.</p>
+      </div>
+      <div class="honesty-item">
+        <span class="mark">▲</span>
+        <p><strong>Rebasing strands nodes.</strong> Rewritten history leaves nodes for unreachable commits. A targeted prune doesn't exist yet — <code>sync --rebuild</code> forces a clean re-scan.</p>
+      </div>
+      <div class="honesty-item">
+        <span class="mark">▲</span>
+        <p><strong>Session-summary titles depend on a 3B model following instructions</strong>, which it does about a third of the time. The fallback keeps them specific, not elegant.</p>
+      </div>
+      <div class="honesty-item">
+        <span class="mark">▲</span>
+        <p><strong>Cross-project recall favours breadth.</strong> Each repo's hits are fused by rank, so a project with only a mediocre match still contributes a result — there's no per-project quality weight.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="quickstart">
+  <div class="wrap">
+    <div class="section-head">
+      <div class="kicker">Try it</div>
+      <h2>Two minutes, inside any git repo</h2>
+      <p>Requires Node 22+ and git. Ollama is optional and only affects semantic search.</p>
+    </div>
+    <div class="quickstart-grid">
+      <div class="code-block">
+        <div class="code-head">
+          <span>CLI</span>
+          <button class="copy-btn" data-copy="npx nexusmem init&#10;npx nexusmem sync&#10;npx nexusmem query &quot;why did the retry fail&quot;">copy</button>
+        </div>
+        <pre>npx nexusmem init
+npx nexusmem sync
+npx nexusmem query "why did the retry fail"</pre>
+      </div>
+      <div class="code-block">
+        <div class="code-head">
+          <span>MCP (agent config)</span>
+          <button class="copy-btn" data-copy='{&#10;  &quot;mcpServers&quot;: {&#10;    &quot;nexusmem&quot;: {&#10;      &quot;command&quot;: &quot;npx&quot;,&#10;      &quot;args&quot;: [&quot;-y&quot;, &quot;nexusmem&quot;, &quot;mcp&quot;]&#10;    }&#10;  }&#10;}'>copy</button>
+        </div>
+        <pre>{
+  "mcpServers": {
+    "nexusmem": {
+      "command": "npx",
+      "args": ["-y", "nexusmem", "mcp"]
+    }
+  }
+}</pre>
+      </div>
+    </div>
+
+    <dl class="cmd-list">
+      <dt>init</dt>
+      <dd>Set up <code>.nexusmem/</code> in the current repository.</dd>
+      <dt>sync</dt>
+      <dd>Ingest git, diffs, shell history and docs; embed anything new.</dd>
+      <dt>query &lt;text&gt;</dt>
+      <dd>Ranked, token-budgeted context for a question, printed to stdout.</dd>
+      <dt>status</dt>
+      <dd>What's currently remembered, by source.</dd>
+      <dt>hook install</dt>
+      <dd>Wrap PowerShell to capture exit codes and timestamps exactly.</dd>
+      <dt>mcp</dt>
+      <dd>Run the MCP server over stdio for an agent to call directly.</dd>
+    </dl>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div>MIT licensed. Built with Claude Code — human-directed, AI-assisted.</div>
+    <div class="foot-links">
+      <a href="https://github.com/yaminbkk/NexusMem" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://www.npmjs.com/package/nexusmem" target="_blank" rel="noopener">npm</a>
+      <a href="https://marketplace.visualstudio.com/items?itemName=yaminbkk.nexusmem-vscode" target="_blank" rel="noopener">VS Code</a>
+      <a href="https://github.com/yaminbkk/NexusMem/issues" target="_blank" rel="noopener">Issues</a>
+    </div>
+  </div>
+</footer>
+
+<script src="script.js"></script>
+</body>
+</html>
