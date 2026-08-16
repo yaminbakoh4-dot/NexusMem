@@ -9,6 +9,21 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
 
 ## [Unreleased]
 
+### Fixed
+
+- **Discussion-bridge heuristic (`sync --link-failures`): corpus-relative boilerplate tokens no
+  longer produce false-positive failure→fix links.** Re-dogfooded at larger scale against a second
+  real project's history: a command made entirely of words that saturate a project's own corpus
+  (e.g. this repo's own name/verbs) could AND-match an unrelated turn that just happened to mention
+  the same words, and bm25 score alone could not separate that from a true positive (measured: the
+  false positive scored *stronger* than two real true positives). `filterBoilerplateTokens` in
+  `src/correlate/failure-fix.ts` drops any token that appears in over 20% of a project's own
+  `conversation_turn`/`session_summary` history before building the match query — measured against
+  real data, not guessed — and skips the discussion-match attempt entirely (rather than falling back
+  unfiltered) when every token turns out to be boilerplate, since a missed link is preferred over a
+  false one for this heuristic. Below 10 discussable nodes the filter is skipped, since frequency
+  isn't a meaningful signal yet on a young project.
+
 ## [0.3.2] — 2026-08-16
 
 ### Added

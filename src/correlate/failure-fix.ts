@@ -1,4 +1,5 @@
-import { toStrictMatchQuery } from '../store/fts.js';
+import type Database from 'better-sqlite3';
+import { significantTokens } from '../store/fts.js';
 import type { MemoryStore } from '../store/store.js';
 
 /**
@@ -15,11 +16,11 @@ import type { MemoryStore } from '../store/store.js';
  *   construction, low recall: a fix that changes the command itself (a typo
  *   correction, an added flag) is invisible to an exact-text match. Not
  *   attempted here -- fuzzy matching is a stretch goal, not this pass's job.
- * - **Conversation bridge.** The best FTS match (via `toStrictMatchQuery`,
- *   an AND of every significant token in the failing command) among
+ * - **Conversation bridge.** The best FTS match (AND of every significant,
+ *   non-boilerplate token in the failing command) among
  *   `conversation_turn`/`session_summary` nodes in the following
- *   `discussionWindowMs`. Originally used `toMatchQuery` (OR-of-tokens) and
- *   was dogfooded against this repo's real history 2026-08-15: roughly half
+ *   `discussionWindowMs`. Originally used an OR-of-tokens match and was
+ *   dogfooded against this repo's real history 2026-08-15: roughly half
  *   the links were wrong, and the confirmed false positives were all driven
  *   by a single shared generic token (e.g. an "npm whoami" failure linked to
  *   an unrelated summary that just happens to mention "npm"). Tightened to
@@ -28,6 +29,30 @@ import type { MemoryStore } from '../store/store.js';
  *   an unvalidated false positive is worse than a missed true positive here.
  *   Does not chain further to whatever commit that conversation might cite;
  *   linking failure -> discussion is the whole claim this heuristic makes.
+ *
+ *   Re-dogfooded at larger scale 2026-08-16 against a second real project
+ *   (`villa-bot`, previously unseen by this heuristic): the AND fix held on
+ *   this repo's own 5 links (still 5/5 correct) but missed a new false-
+ *   positive class the small original sample never surfaced -- a command
+ *   made entirely of the tool's own boilerplate words (`nexusmem sync`)
+ *   AND-matched an unrelated turn that just happened to show the same
+ *   command as generic advice. bm25 score could not separate this from a
+ *   true positive (measured: the false positive scored -9.685, *stronger*
+ *   than two real true positives at -5.899/-6.559) -- bm25 rewards rarity
+ *   *within whatever corpus it's run against*, and in villa-bot's smaller
+ *   corpus those words hadn't accumulated enough occurrences to be
+ *   recognized as boilerplate, even though the same words measure 33-39%
+ *   document frequency in this repo's own (more self-referential) history.
+ *   `filterBoilerplateTokens` below adds that corpus-relative check as a
+ *   second filtering pass. Note honestly: at villa-bot's actual measured
+ *   frequency for those words (9.3%/4.6%, comfortably under the threshold),
+ *   this pass does *not* retroactively catch that specific instance -- it
+ *   was a low-frequency AND-coincidence, not corpus saturation. What it does
+ *   protect against is the class the numbers actually support: a command
+ *   whose words are truly ubiquitous in a project's own history (like this
+ *   repo's own name/verbs), which the villa-bot corpus wasn't saturated with
+ *   yet but plausibly will be over time, and which this repo's corpus
+ *   already is.
  */
 
 export interface CorrelateOptions {
@@ -67,6 +92,62 @@ interface FailureRow {
 
 function normalizeCommand(command: string): string {
   return command.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+/**
+ * A token appearing in more than this fraction of a project's own
+ * `conversation_turn`/`session_summary` nodes is treated as corpus-relative
+ * boilerplate for the discussion-bridge heuristic -- picked from real
+ * measured numbers, not guessed: the known "id" false positive measures
+ * 22-40% document frequency across two real corpora checked, and this repo's
+ * own name/verbs ("nexusmem"/"sync") measure 33-39% in this repo's own
+ * history, while genuinely distinguishing terms from the same real links
+ * ("whoami", "wsl", "publish") all measure under 2%. 0.2 sits clearly below
+ * the boilerplate cluster and clearly above the signal cluster in every
+ * real measurement taken so far.
+ */
+const MAX_TOKEN_DOC_FREQUENCY = 0.2;
+
+/**
+ * Below this many discussable nodes, frequency is not a meaningful signal --
+ * with a handful of nodes total, any word can trivially hit 20%+ just by
+ * appearing once or twice, which would suppress real links on a young
+ * project purely for lack of data rather than because the word is actually
+ * boilerplate. 10 is a floor, not a tuned value: below it, skip the filter
+ * entirely and fall back to whatever `significantTokens` already decided.
+ */
+const MIN_CORPUS_FOR_FREQUENCY_FILTER = 10;
+
+/**
+ * Drops tokens that are boilerplate *in this specific project's own
+ * history*, unlike `LOW_SIGNAL_TOKENS` in `fts.ts` which is a fixed list for
+ * general search. Deliberately does NOT fall back to the unfiltered token
+ * list when every token is boilerplate (the pattern `significantTokens`
+ * itself uses) -- for this heuristic specifically, a command built entirely
+ * of words that saturate the project's own corpus (e.g. this repo's own
+ * name/verbs, "nexusmem sync") has no word left that could distinguish a
+ * real discussion of *this* failure from generic chatter, and this
+ * heuristic's whole design already prefers a missed link over a false one.
+ */
+function filterBoilerplateTokens(db: Database.Database, projectId: string, tokens: string[]): string[] {
+  if (tokens.length === 0) return tokens;
+
+  const total = (
+    db
+      .prepare(`SELECT COUNT(*) AS c FROM nodes WHERE project_id = ? AND kind IN ('conversation_turn', 'session_summary')`)
+      .get(projectId) as { c: number }
+  ).c;
+  if (total < MIN_CORPUS_FOR_FREQUENCY_FILTER) return tokens;
+
+  const countMatching = db.prepare(
+    `SELECT COUNT(*) AS c FROM nodes_fts JOIN nodes n ON n.rowid = nodes_fts.rowid
+     WHERE nodes_fts MATCH ? AND n.project_id = ? AND n.kind IN ('conversation_turn', 'session_summary')`,
+  );
+
+  return tokens.filter((t) => {
+    const matching = (countMatching.get(`"${t}"*`, projectId) as { c: number }).c;
+    return matching / total <= MAX_TOKEN_DOC_FREQUENCY;
+  });
 }
 
 export function correlateFailures(store: MemoryStore, projectId: string, opts: CorrelateOptions = {}): CorrelateStats {
@@ -123,7 +204,8 @@ export function correlateFailures(store: MemoryStore, projectId: string, opts: C
       linkedByRetry += 1;
     }
 
-    const match = toStrictMatchQuery(failure.command);
+    const tokens = filterBoilerplateTokens(db, projectId, significantTokens(failure.command));
+    const match = tokens.length > 0 ? tokens.map((t) => `"${t}"*`).join(' AND ') : null;
     if (match) {
       const discussion = findDiscussion.get(match, projectId, failure.ts_epoch, failure.ts_epoch + discussionWindowMs) as
         | { id: string }

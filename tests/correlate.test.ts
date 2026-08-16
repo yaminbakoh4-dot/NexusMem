@@ -135,6 +135,49 @@ describe('correlateFailures', () => {
     expect(store.getLinkedNodeIds('fail', RESOLVED_BY_DISCUSSION)).toEqual([]);
   });
 
+  it('does not link when every token of the failing command is boilerplate across the project\'s own history (re-dogfooding at scale, 2026-08-16)', () => {
+    // 9 filler nodes plus the coincidence node below = 10 discussable nodes,
+    // meeting the frequency filter's minimum-corpus floor -- both "widget"
+    // and "sync" appear in all 10, so both measure 100% document frequency,
+    // comfortably over the 20% boilerplate threshold.
+    const filler = Array.from({ length: 9 }, (_, i) =>
+      conversationNode(`filler-${i}`, { ts: T0 - (i + 1) * HOUR, body: `widget sync deployment notes #${i}` }),
+    );
+    store.upsertNodes([
+      shellNode('fail', { ts: T0, command: 'widget sync', exitCode: 1 }),
+      ...filler,
+      conversationNode('coincidence', { ts: T0 + HOUR, body: 'Q: push\n\nA: periodically run widget sync to refresh' }),
+    ]);
+
+    const stats = correlateFailures(store, PROJECT);
+
+    // discriminating: "coincidence" textually AND-matches "widget sync" and
+    // sits inside the discussion window, so the pre-fix heuristic would have
+    // linked it -- both tokens being corpus-wide boilerplate must suppress
+    // the match instead.
+    expect(stats.linkedByDiscussion).toBe(0);
+    expect(store.getLinkedNodeIds('fail', RESOLVED_BY_DISCUSSION)).toEqual([]);
+  });
+
+  it('still links via a rare token even when a common token from the same command is filtered as boilerplate', () => {
+    // "npm" saturates 9 of the 10 discussable nodes (90%, filtered as
+    // boilerplate); "whoami" appears only in the real discussion (10%,
+    // kept) -- the remaining single token must still find the right node.
+    const filler = Array.from({ length: 9 }, (_, i) =>
+      conversationNode(`filler-${i}`, { ts: T0 - (i + 1) * HOUR, body: `npm scripts and tooling notes #${i}` }),
+    );
+    store.upsertNodes([
+      shellNode('fail', { ts: T0, command: 'npm whoami', exitCode: 1 }),
+      ...filler,
+      conversationNode('discussion', { ts: T0 + HOUR, body: 'Q: why did npm whoami fail\n\nA: you were logged out, run npm login' }),
+    ]);
+
+    const stats = correlateFailures(store, PROJECT);
+
+    expect(stats.linkedByDiscussion).toBe(1);
+    expect(store.getLinkedNodeIds('fail', RESOLVED_BY_DISCUSSION)).toEqual(['discussion']);
+  });
+
   it('does not link a discussion outside the configured discussion window', () => {
     store.upsertNodes([
       shellNode('fail', { ts: T0, command: 'npm run typecheck', exitCode: 2 }),

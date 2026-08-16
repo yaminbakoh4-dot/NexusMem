@@ -22,7 +22,16 @@ const FTS_SYNTAX = /["'()*:^{}[\]-]/g;
  */
 const LOW_SIGNAL_TOKENS = new Set(['id']);
 
-function significantTokens(input: string): string[] {
+/**
+ * Exported for `failure-fix.ts`'s discussion-bridge heuristic, which layers
+ * its own corpus-relative document-frequency filter on top of this
+ * tokenization (see `filterBoilerplateTokens` there) -- the hardcoded
+ * `LOW_SIGNAL_TOKENS` set here catches known-generic terms in general search,
+ * but a term like a project's own tool name is only generic *in that
+ * project's own corpus*, which requires a DB query this pure function
+ * deliberately does not make.
+ */
+export function significantTokens(input: string): string[] {
   const tokens = input
     .replace(FTS_SYNTAX, ' ')
     .split(/\s+/)
