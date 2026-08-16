@@ -118,6 +118,8 @@ const MAX_TOKEN_DOC_FREQUENCY = 0.2;
  */
 const MIN_CORPUS_FOR_FREQUENCY_FILTER = 10;
 
+const DEFAULT_BOILERPLATE_KINDS = ['conversation_turn', 'session_summary'] as const;
+
 /**
  * Drops tokens that are boilerplate *in this specific project's own
  * history*, unlike `LOW_SIGNAL_TOKENS` in `fts.ts` which is a fixed list for
@@ -128,24 +130,36 @@ const MIN_CORPUS_FOR_FREQUENCY_FILTER = 10;
  * name/verbs, "nexusmem sync") has no word left that could distinguish a
  * real discussion of *this* failure from generic chatter, and this
  * heuristic's whole design already prefers a missed link over a false one.
+ *
+ * `kinds` defaults to the discussion-bridge heuristic's own scope
+ * (conversation/session nodes) but is a parameter so `correlate/precheck.ts`
+ * can reuse the identical corpus-relative logic scoped to `shell_command`
+ * nodes instead -- document frequency is only meaningful when measured
+ * against the same population the match query will run over.
  */
-function filterBoilerplateTokens(db: Database.Database, projectId: string, tokens: string[]): string[] {
+export function filterBoilerplateTokens(
+  db: Database.Database,
+  projectId: string,
+  tokens: string[],
+  kinds: readonly string[] = DEFAULT_BOILERPLATE_KINDS,
+): string[] {
   if (tokens.length === 0) return tokens;
 
+  const kindsPlaceholder = kinds.map(() => '?').join(', ');
   const total = (
     db
-      .prepare(`SELECT COUNT(*) AS c FROM nodes WHERE project_id = ? AND kind IN ('conversation_turn', 'session_summary')`)
-      .get(projectId) as { c: number }
+      .prepare(`SELECT COUNT(*) AS c FROM nodes WHERE project_id = ? AND kind IN (${kindsPlaceholder})`)
+      .get(projectId, ...kinds) as { c: number }
   ).c;
   if (total < MIN_CORPUS_FOR_FREQUENCY_FILTER) return tokens;
 
   const countMatching = db.prepare(
     `SELECT COUNT(*) AS c FROM nodes_fts JOIN nodes n ON n.rowid = nodes_fts.rowid
-     WHERE nodes_fts MATCH ? AND n.project_id = ? AND n.kind IN ('conversation_turn', 'session_summary')`,
+     WHERE nodes_fts MATCH ? AND n.project_id = ? AND n.kind IN (${kindsPlaceholder})`,
   );
 
   return tokens.filter((t) => {
-    const matching = (countMatching.get(`"${t}"*`, projectId) as { c: number }).c;
+    const matching = (countMatching.get(`"${t}"*`, projectId, ...kinds) as { c: number }).c;
     return matching / total <= MAX_TOKEN_DOC_FREQUENCY;
   });
 }

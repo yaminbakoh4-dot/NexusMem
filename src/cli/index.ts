@@ -9,6 +9,7 @@ import { runHookInstall, runHookRemove, runHookStatus } from './commands/hook.js
 import { runInit } from './commands/init.js';
 import { runProjects } from './commands/projects.js';
 import { runMcpServer } from '../mcp/server.js';
+import { runPrecheck } from './commands/precheck.js';
 import { runQuery } from './commands/query.js';
 import { runScanConversation } from './commands/scan-conversation.js';
 import { runScanDiff } from './commands/scan-diff.js';
@@ -272,6 +273,26 @@ program
   .option('--min-signal <score>', 'drop nodes below this signal', (v) => Number.parseFloat(v), 0)
   .option('--json', 'emit MemoryNodes as JSON on stdout', false)
   .action((options) => guard(() => runScanDocs({ cwd: options.cwd, minSignal: options.minSignal, json: options.json }))());
+
+program
+  .command('precheck')
+  .description('Warn about staged files with unresolved past failures or high recent churn (advisory, exits 0 unless --strict)')
+  .option('-C, --cwd <path>', 'repository path', process.cwd())
+  .option('--files <paths...>', 'check exactly these repo-relative paths instead of what is staged')
+  .option('--working', 'check the working tree (unstaged changes) instead of what is staged for commit', false)
+  .option('--strict', 'exit 1 when any file has an unresolved failure', false)
+  .option('-q, --quiet', 'only print output when there is something to warn about', false)
+  .action((options) =>
+    guard(() =>
+      runPrecheck({
+        cwd: options.cwd,
+        files: options.files,
+        working: options.working,
+        strict: options.strict,
+        quiet: options.quiet,
+      }),
+    )(),
+  );
 
 program
   .command('scan-structure')
