@@ -9,6 +9,8 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
 
 ## [Unreleased]
 
+## [0.3.3] — 2026-08-16
+
 ### Added
 
 - **`nexusmem status` now shows failure→fix chain counts** — `N/M failure(s) resolved (X retry, Y
@@ -274,7 +276,8 @@ First public release.
   there is no local-model summarization pass, and the conversation collector has never been audited
   for the stale-node bug that was found and fixed in the docs collector.
 
-[Unreleased]: https://github.com/yaminbkk/NexusMem/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/yaminbkk/NexusMem/compare/v0.3.3...HEAD
+[0.3.3]: https://github.com/yaminbkk/NexusMem/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/yaminbkk/NexusMem/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/yaminbkk/NexusMem/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/yaminbkk/NexusMem/compare/v0.2.0...v0.3.0
