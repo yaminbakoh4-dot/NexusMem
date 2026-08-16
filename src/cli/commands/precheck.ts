@@ -13,6 +13,8 @@ export interface PrecheckOptions {
   /** Exit 1 when any file has an unresolved failure. Off by default -- advisory, like every other opt-in signal this project ships. */
   strict?: boolean;
   quiet?: boolean;
+  /** Where the report goes. Defaults to real stderr (stdout is reserved for `--json`-style machine output elsewhere in the CLI). Injectable for tests. */
+  out?: (chunk: string) => void;
 }
 
 /**
@@ -42,12 +44,13 @@ async function workingTreeFiles(repoRoot: string): Promise<string[]> {
 }
 
 export async function runPrecheck(opts: PrecheckOptions): Promise<number> {
+  const out = opts.out ?? ((chunk: string) => void process.stderr.write(chunk));
   const { repo, ws, projectId } = await loadContext(opts.cwd);
 
   const targetFiles = opts.files ?? (opts.working ? await workingTreeFiles(repo.root) : await stagedFiles(repo.root));
 
   if (targetFiles.length === 0) {
-    if (!opts.quiet) process.stderr.write(`${pc.dim('precheck')} no files to check\n`);
+    if (!opts.quiet) out(`${pc.dim('precheck')} no files to check\n`);
     return 0;
   }
 
@@ -62,36 +65,34 @@ export async function runPrecheck(opts: PrecheckOptions): Promise<number> {
   const flagged = risks.filter((r) => r.unresolvedFailures.length > 0 || r.commitsRecent >= HIGH_CHURN_THRESHOLD);
 
   if (flagged.length === 0) {
-    if (!opts.quiet) process.stderr.write(`${pc.green('precheck')} no warnings — looking good\n`);
+    if (!opts.quiet) out(`${pc.green('precheck')} no warnings — looking good\n`);
     return 0;
   }
 
-  process.stderr.write(`\n${pc.bold('nexusmem precheck')}\n${pc.dim('-'.repeat(40))}\n\n`);
+  out(`\n${pc.bold('nexusmem precheck')}\n${pc.dim('-'.repeat(40))}\n\n`);
 
   for (const risk of flagged) {
-    process.stderr.write(`  ${pc.bold(risk.path)}\n`);
+    out(`  ${pc.bold(risk.path)}\n`);
 
     if (risk.unresolvedFailures.length > 0) {
-      process.stderr.write(
-        `    ${pc.yellow('WARN')}  What already failed here (${risk.unresolvedFailures.length} unresolved):\n`,
-      );
+      out(`    ${pc.yellow('WARN')}  What already failed here (${risk.unresolvedFailures.length} unresolved):\n`);
       for (const f of risk.unresolvedFailures.slice(0, 3)) {
-        process.stderr.write(`           ${pc.dim(`${f.ts.slice(0, 10)}  ${f.command.slice(0, 90)}`)}\n`);
+        out(`           ${pc.dim(`${f.ts.slice(0, 10)}  ${f.command.slice(0, 90)}`)}\n`);
       }
       if (risk.unresolvedFailures.length > 3) {
-        process.stderr.write(`           ${pc.dim(`... and ${risk.unresolvedFailures.length - 3} more`)}\n`);
+        out(`           ${pc.dim(`... and ${risk.unresolvedFailures.length - 3} more`)}\n`);
       }
     }
 
     if (risk.commitsRecent >= HIGH_CHURN_THRESHOLD) {
-      process.stderr.write(`    ${pc.yellow('WARN')}  high churn: ${risk.commitsRecent} commits touched this file recently\n`);
+      out(`    ${pc.yellow('WARN')}  high churn: ${risk.commitsRecent} commits touched this file recently\n`);
     }
 
-    process.stderr.write('\n');
+    out('\n');
   }
 
   const failureCount = flagged.filter((r) => r.unresolvedFailures.length > 0).length;
-  process.stderr.write(`${pc.dim(`${flagged.length} file(s) flagged, ${failureCount} with unresolved failures.`)}\n`);
+  out(`${pc.dim(`${flagged.length} file(s) flagged, ${failureCount} with unresolved failures.`)}\n`);
 
   if (opts.strict && failureCount > 0) return 1;
   return 0;

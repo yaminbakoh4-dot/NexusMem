@@ -15,6 +15,17 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
   remote can leave stale data under the old identity; status reports both the identity and node
   counts and points to `sync --prune-source <name>` instead of leaving that data discoverable only
   through a raw SQLite query.
+- **`nexusmem precheck`: proactive pre-commit warnings.** Checks staged (or `--working`, or explicit `--files`)
+  files against project memory and warns about unresolved past failures and high recent churn *before* you
+  commit — advisory by default (always exits 0; `--strict` turns an unresolved failure into a non-zero exit).
+  Matches a file's own basename tokens against still-unlinked `shell_command` failures (no
+  `resolved_by:*` link from `sync --link-failures`), reusing `filterBoilerplateTokens` from the
+  discussion-bridge heuristic — now exported and parameterized by node kind so it can be corpus-relative
+  against `shell_command` history instead of only `conversation_turn`/`session_summary`. Churn is scoped to
+  `git_commit`-kind `node_files` touches only, so it doesn't double-count the identical touches `code_diff`
+  nodes also record. Deliberately does not yet install as a real git hook (see the module comment in
+  `src/correlate/precheck.ts` for why capture-time `git status` diffing and past-commit correlation were both
+  rejected) — that's a follow-up once this signal has been dogfooded.
 - **JS/TS import-graph edges.** `nexusmem scan-structure` previews (and `sync` now ingests) file→file
   import relationships across a project's tracked `.ts`/`.tsx`/`.js`/`.jsx` files — a dependency-free
   regex extractor (`src/structure/extract.ts`) resolves relative `import`/`export ... from`/`require`/
