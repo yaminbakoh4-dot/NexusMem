@@ -1,18 +1,30 @@
-import { RESOLVED_BY_RETRY } from '../correlate/failure-fix.js';
+import { RESOLVED_BY_DISCUSSION, RESOLVED_BY_RETRY } from '../correlate/failure-fix.js';
 import type { MemoryStore, SearchHit, VectorHit } from '../store/store.js';
 import type { EmbeddingProvider } from '../vector/embed.js';
 import { mergeSearchAndVectorHits, reciprocalRankFusion } from './fuse.js';
 import { packContext, type PackResult } from './pack.js';
 import { rankHits, type RankedHit } from './rank.js';
 
+/** Both chain relations are surfaced -- see the doc comment on `pullLinkedResolutions` for why. */
+const SURFACED_RELATIONS = [RESOLVED_BY_RETRY, RESOLVED_BY_DISCUSSION] as const;
+
 /**
- * Pull a `shell_command` failure's linked resolution (`RESOLVED_BY_RETRY`
- * only -- see `failure-fix.ts`'s doc comment for why the discussion
- * heuristic stays unsurfaced) into the ranked list, immediately after the
- * failure, so it survives `packContext`'s budget/diversity cuts alongside it
- * instead of needing to earn its own place on query relevance alone. That is
- * the whole point of Phase 7's chain feature: a resolution the query never
- * mentioned should still ride along with the failure it resolves.
+ * Pull a `shell_command` failure's linked resolution(s) into the ranked
+ * list, immediately after the failure, so they survive `packContext`'s
+ * budget/diversity cuts alongside it instead of needing to earn their own
+ * place on query relevance alone. That is the whole point of Phase 7's chain
+ * feature: a resolution the query never mentioned should still ride along
+ * with the failure it resolves.
+ *
+ * Both `RESOLVED_BY_RETRY` and `RESOLVED_BY_DISCUSSION` are surfaced.
+ * Discussion links were excluded through Phase 7 -- dogfooding against this
+ * repo's real history found roughly half of them wrong, driven by a single
+ * shared generic token. `toStrictMatchQuery` (an AND of every significant
+ * token) fixed that at the source: re-dogfooded against the same real
+ * corpus, all 5 resulting links (3 distinct failure/discussion pairs) were
+ * verified correct by hand, full body read, not just the summary. Given a
+ * false discussion link is now no more likely than a false retry link, there
+ * is no remaining reason to treat them differently at this layer.
  *
  * The pulled-in node inherits its failure's relevance/signalWeight/
  * recencyFactor/score wholesale rather than computing its own: it has no
@@ -21,12 +33,16 @@ import { rankHits, type RankedHit } from './rank.js';
  * resolution already present in `ranked` on its own merits is left
  * untouched, never duplicated.
  *
- * Single-project only for now -- `runCrossProjectQuery` merges hits from
- * several stores into one list, and a hit's originating store isn't
- * threaded through packContext's input shape yet. Not extended here;
- * cross-project chain-following is a known gap, not a silent omission.
+ * `resolveStore` maps a hit back to the `MemoryStore` its links live in --
+ * always the same store for `runHybridQuery`, but per-source for
+ * `runCrossProjectQuery`, since links are only ever recorded within one
+ * project's own database (node ids are project-scoped, so a link cannot
+ * cross databases in the first place).
  */
-function pullLinkedResolutions(store: MemoryStore, ranked: readonly RankedHit[]): RankedHit[] {
+function pullLinkedResolutions(
+  resolveStore: (hit: RankedHit) => MemoryStore | undefined,
+  ranked: readonly RankedHit[],
+): RankedHit[] {
   const present = new Set(ranked.map((hit) => hit.id));
   const withLinks: RankedHit[] = [];
 
@@ -34,27 +50,32 @@ function pullLinkedResolutions(store: MemoryStore, ranked: readonly RankedHit[])
     withLinks.push(hit);
     if (hit.kind !== 'shell_command') continue;
 
-    for (const linkedId of store.getLinkedNodeIds(hit.id, RESOLVED_BY_RETRY)) {
-      if (present.has(linkedId)) continue;
-      const [resolution] = store.getNodesByIds([linkedId]);
-      if (!resolution) continue;
+    const store = resolveStore(hit);
+    if (!store) continue;
 
-      present.add(linkedId);
-      withLinks.push({
-        id: resolution.id,
-        kind: resolution.kind,
-        ts: resolution.ts,
-        title: resolution.title,
-        body: resolution.body,
-        signal: resolution.signal,
-        rank: 0, // no bm25/vector rank of its own -- never read again past this point
-        relevance: hit.relevance,
-        signalWeight: hit.signalWeight,
-        recencyFactor: hit.recencyFactor,
-        ageDays: hit.ageDays,
-        score: hit.score,
-        ...(hit.project ? { project: hit.project } : {}),
-      });
+    for (const relation of SURFACED_RELATIONS) {
+      for (const linkedId of store.getLinkedNodeIds(hit.id, relation)) {
+        if (present.has(linkedId)) continue;
+        const [resolution] = store.getNodesByIds([linkedId]);
+        if (!resolution) continue;
+
+        present.add(linkedId);
+        withLinks.push({
+          id: resolution.id,
+          kind: resolution.kind,
+          ts: resolution.ts,
+          title: resolution.title,
+          body: resolution.body,
+          signal: resolution.signal,
+          rank: 0, // no bm25/vector rank of its own -- never read again past this point
+          relevance: hit.relevance,
+          signalWeight: hit.signalWeight,
+          recencyFactor: hit.recencyFactor,
+          ageDays: hit.ageDays,
+          score: hit.score,
+          ...(hit.project ? { project: hit.project } : {}),
+        });
+      }
     }
   }
 
@@ -145,8 +166,12 @@ export async function runCrossProjectQuery(
     hits.push(...mergeSearchAndVectorHits(bm25Hits, vectorHits).map(label));
   }
 
+  const storeByLabel = new Map(sources.map((source) => [source.label, source.store]));
   const relevanceScores = reciprocalRankFusion(lists);
-  const ranked = rankHits(hits, { halfLifeDays: opts.halfLifeDays, relevanceScores });
+  const ranked = pullLinkedResolutions(
+    (hit) => (hit.project ? storeByLabel.get(hit.project) : undefined),
+    rankHits(hits, { halfLifeDays: opts.halfLifeDays, relevanceScores }),
+  );
   const packed = packContext(ranked, opts.budget, { query });
 
   return { bm25Count, vectorCount, hits, packed, perProject };
@@ -175,7 +200,10 @@ export async function runHybridQuery(
   const hits = vectorHits.length > 0 ? mergeSearchAndVectorHits(bm25Hits, vectorHits) : bm25Hits;
   const relevanceScores = vectorHits.length > 0 ? reciprocalRankFusion([bm25Hits, vectorHits]) : undefined;
 
-  const ranked = pullLinkedResolutions(store, rankHits(hits, { halfLifeDays: opts.halfLifeDays, relevanceScores }));
+  const ranked = pullLinkedResolutions(
+    () => store,
+    rankHits(hits, { halfLifeDays: opts.halfLifeDays, relevanceScores }),
+  );
   // The query reaches the packer as well as the searcher: for a diff node it
   // decides which hunk of an already-retrieved patch is worth the budget.
   const packed = packContext(ranked, opts.budget, { query });

@@ -97,18 +97,22 @@ After a normal sync, this walks every failed `shell_command` (non-zero exit code
 whatever later resolved it, using two independent heuristics: a later command in the same project
 and working directory, exact same normalized text, that exited `0` within 24h (**same-command
 retry**); and, separately, the best full-text match among nearby conversation turns or session
-summaries (**conversation bridge**). A failure can be linked by either, both, or neither.
+summaries, requiring every significant word of the failing command to appear, not just one
+(**conversation bridge**). A failure can be linked by either, both, or neither.
 
-Only the retry link is ever surfaced in query results. Dogfooded against this repo's own real
-history, the retry heuristic was correct on every link checked by hand; the conversation-bridge
-heuristic was wrong on roughly half, since a discussion sharing a few words with the failing command
-can outrank one that's actually about it. It is still recorded — kept in the database for a future,
-tighter version — just not shown.
+Both links are surfaced in query results. The conversation-bridge heuristic originally matched on
+any shared word, and dogfooding against this repo's own real history found it wrong on roughly half
+its links — a shared word as generic as "npm" was enough to link an unrelated discussion. Requiring
+every significant word fixed that: re-dogfooded against the same corpus, every resulting link (the
+full set produced, not a sample) checked out correct on manual review of the full text, not just the
+summary.
 
-When a retry-linked failure appears in a result set, its fix rides along immediately after it,
-inheriting the failure's own relevance score rather than needing to match the query on its own
-merits. That is the point: a query about why something failed shouldn't need to separately guess the
-words used in whatever fixed it.
+When a linked failure appears in a result set, its fix rides along immediately after it, inheriting
+the failure's own relevance score rather than needing to match the query on its own merits. That is
+the point: a query about why something failed shouldn't need to separately guess the words used in
+whatever fixed it. This works across projects too — `query --all-projects` chains a failure to its
+fix using whichever project's own database recorded the link, since links are always local to the
+project they were found in.
 
 ```
 $ nexusmem query "why did npm whoami fail"
@@ -116,9 +120,6 @@ $ nexusmem query "why did npm whoami fail"
 - 2026-08-12 shell: npm whoami  (exit 1)
 - 2026-08-12 shell: npm login   (exit 0)  -- linked as the fix
 ```
-
-Same-project only for now; a failure resolved by a command in a different project (checked via
-`query --all-projects`) won't chain across the boundary yet.
 
 ## How retrieval works
 
