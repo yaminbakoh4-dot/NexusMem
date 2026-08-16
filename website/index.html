@@ -17,9 +17,20 @@
 
 <link rel="icon" href="assets/icon.png" />
 <link rel="apple-touch-icon" href="assets/icon.png" />
+<link rel="preload" href="assets/fonts/Geist-Variable.woff2" as="font" type="font/woff2" crossorigin />
+<link rel="preload" href="assets/fonts/GeistMono-Variable.woff2" as="font" type="font/woff2" crossorigin />
 <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <linearGradient id="brand-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4ade9a" />
+      <stop offset="100%" stop-color="#38bdf8" />
+    </linearGradient>
+  </defs>
+</svg>
 
 <a class="skip-link" href="#main">Skip to content</a>
 
@@ -52,9 +63,11 @@
 <main id="main">
 
 <header class="hero" id="top">
+  <div class="hero-glow a" aria-hidden="true"></div>
+  <div class="hero-glow b" aria-hidden="true"></div>
   <div class="wrap">
     <span class="eyebrow"><span class="dot" aria-hidden="true"></span>open source · local-first · MIT</span>
-    <h1>Your agent can read <code>git log</code>.<br />
+    <h1>Your agent can read <code class="grad-text">git log</code>.<br />
       <span class="dim">It can't read the four things you tried last Tuesday that didn't work.</span></h1>
     <p class="lede">
       NexusMem records what actually happened on your machine — shell commands and their exit
@@ -90,12 +103,12 @@ npx nexusmem sync</pre>
 
 <section id="demo">
   <div class="wrap">
-    <div class="section-head">
+    <div class="section-head reveal">
       <div class="kicker">See it work</div>
       <h2>Real output, this repo's own history</h2>
       <p>Init, sync, status, and a query — recorded against NexusMem's own repository.</p>
     </div>
-    <div class="demo-frame">
+    <div class="demo-frame reveal">
       <img src="assets/demo.gif" alt="Terminal recording of nexusmem init, sync, status, and query commands run against this repo's own history" loading="lazy" width="1200" height="760" />
     </div>
   </div>
@@ -103,12 +116,12 @@ npx nexusmem sync</pre>
 
 <section aria-labelledby="query-example-head">
   <div class="wrap">
-    <div class="section-head">
+    <div class="section-head reveal">
       <div class="kicker">One query, two sources</div>
       <h2 id="query-example-head">A commit and a docs section, ranked against each other</h2>
       <p>Nothing here is summarized by a model on the way out. The ranker just decides what not to send.</p>
     </div>
-    <div class="terminal">
+    <div class="terminal reveal">
       <div class="code-head">
         <div class="dots" aria-hidden="true"><span></span><span></span><span></span></div>
         <span>nexusmem query</span>
@@ -124,57 +137,59 @@ npx nexusmem sync</pre>
   the third case in two separate sessions...
 
 <span class="hit-title">- 2026-08-09 README.md — Before a tagged release</span>
-  - [ ] Retry on transient process-spawn failures on Windows</pre>
+  - [ ] Retry on transient process-spawn failures on Windows
+
+<span class="prompt">$</span> <span class="cursor-blink" aria-hidden="true"></span></pre>
     </div>
   </div>
 </section>
 
 <section id="features" aria-labelledby="features-head">
   <div class="wrap">
-    <div class="section-head">
+    <div class="section-head reveal">
       <div class="kicker">What it tracks</div>
       <h2 id="features-head">Every source normalizes to the same shape</h2>
       <p>A commit, a shell command and a docs section compete on equal terms — BM25 and vector search, fused by rank.</p>
     </div>
-    <div class="grid">
-      <div class="card">
+    <div class="grid reveal-group">
+      <div class="card reveal">
         <div class="icon-chip" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="url(#brand-gradient)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg>
         </div>
         <h3>Shell history + exit codes</h3>
         <p>A PSReadLine-first hook captures working directory, exit code and a real timestamp. A failed command is a stronger signal than a successful one.</p>
       </div>
-      <div class="card">
+      <div class="card reveal">
         <div class="icon-chip" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="5" r="2.2"/><circle cx="6" cy="19" r="2.2"/><circle cx="18" cy="12" r="2.2"/><path d="M6 7.2V16.8M6 9c0 4 3 5 8 5h2"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="url(#brand-gradient)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="5" r="2.2"/><circle cx="6" cy="19" r="2.2"/><circle cx="18" cy="12" r="2.2"/><path d="M6 7.2V16.8M6 9c0 4 3 5 8 5h2"/></svg>
         </div>
         <h3>Git commits &amp; diffs</h3>
         <p>Full commit history plus the patch of each changed file — what shipped, down to the lines that changed.</p>
       </div>
-      <div class="card">
+      <div class="card reveal">
         <div class="icon-chip" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l4 4v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/><path d="M14 3v5h5M8 13h7M8 17h7M8 9h3"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="url(#brand-gradient)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l4 4v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/><path d="M14 3v5h5M8 13h7M8 17h7M8 9h3"/></svg>
         </div>
         <h3>Project docs</h3>
         <p>Markdown chunked at heading boundaries. Ask why a decision was made and get the actual rationale section back.</p>
       </div>
-      <div class="card">
+      <div class="card reveal">
         <div class="icon-chip" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a4 4 0 0 1 4-4h2M20 12a4 4 0 0 1-4 4h-2"/><path d="M9 4 6.5 8 9 12M15 12l2.5 4-2.5 4"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="url(#brand-gradient)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a4 4 0 0 1 4-4h2M20 12a4 4 0 0 1-4 4h-2"/><path d="M9 4 6.5 8 9 12M15 12l2.5 4-2.5 4"/></svg>
         </div>
         <h3>Failure → fix chains</h3>
         <p>Opt-in. Links a failed command to whatever later resolved it, so its fix rides along in the same result automatically.</p>
       </div>
-      <div class="card">
+      <div class="card reveal">
         <div class="icon-chip" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="7" width="10" height="10" rx="1.5"/><path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="url(#brand-gradient)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="7" width="10" height="10" rx="1.5"/><path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3"/></svg>
         </div>
         <h3>Session summaries</h3>
         <p>Opt-in, local Ollama model, ingest time only. One distilled node — what was decided and why — next to the raw exchanges.</p>
       </div>
-      <div class="card">
+      <div class="card reveal">
         <div class="icon-chip" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="6" r="2.3"/><circle cx="19" cy="6" r="2.3"/><circle cx="12" cy="18" r="2.3"/><path d="M6.7 7.6 10.5 16M17.3 7.6 13.5 16M7.3 6h9.4"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="url(#brand-gradient)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="6" r="2.3"/><circle cx="19" cy="6" r="2.3"/><circle cx="12" cy="18" r="2.3"/><path d="M6.7 7.6 10.5 16M17.3 7.6 13.5 16M7.3 6h9.4"/></svg>
         </div>
         <h3>Cross-project recall</h3>
         <p><code>query --all-projects</code> searches every repo you've synced, tagged by source. Off by default, scoped when off.</p>
@@ -185,13 +200,13 @@ npx nexusmem sync</pre>
 
 <section id="stats" aria-labelledby="stats-head">
   <div class="wrap">
-    <div class="section-head">
+    <div class="section-head reveal">
       <div class="kicker">What it costs you</div>
       <h2 id="stats-head">Two numbers, kept apart on purpose</h2>
       <p>End-to-end saving compares the packed context NexusMem sends against reading, in full, the files its own ranking identified as relevant.</p>
     </div>
-    <div class="stats-grid">
-      <div class="stat-card">
+    <div class="stats-grid reveal-group">
+      <div class="stat-card reveal">
         <div class="num-row"><span class="num">95%</span><span class="label">token saving</span></div>
         <div class="sub">this repo — 62 commits, 16 real prompts, vs. full file content</div>
         <div class="stat-bar" role="img" aria-label="95 percent token saving, above the 70 percent target">
@@ -199,7 +214,7 @@ npx nexusmem sync</pre>
           <div class="target-line"></div>
         </div>
       </div>
-      <div class="stat-card">
+      <div class="stat-card reveal">
         <div class="num-row"><span class="num">99%</span><span class="label">token saving</span></div>
         <div class="sub">vitejs/vite — 9,567 commits, mechanically sampled, vs. full file content</div>
         <div class="stat-bar" role="img" aria-label="99 percent token saving, above the 70 percent target">
@@ -233,29 +248,29 @@ npx nexusmem sync</pre>
 
 <section class="honesty" id="breaks" aria-labelledby="breaks-head">
   <div class="wrap">
-    <div class="section-head">
+    <div class="section-head reveal">
       <div class="kicker">Read before you trust it</div>
       <h2 id="breaks-head">Where it breaks</h2>
       <p>Stated plainly, same as the README — including the parts that make the pitch look worse.</p>
     </div>
-    <div class="honesty-list">
-      <div class="honesty-item">
+    <div class="honesty-list reveal-group">
+      <div class="honesty-item reveal">
         <span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 2 20h20L12 3Z"/><path d="M12 10v4M12 17h.01"/></svg></span>
         <p><strong>Shell history without the hook is unscoped.</strong> Scraped history has no directory context and is attributed to whichever repo you ran <code>sync</code> from — a tail-window approximation, not a guarantee.</p>
       </div>
-      <div class="honesty-item">
+      <div class="honesty-item reveal">
         <span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 2 20h20L12 3Z"/><path d="M12 10v4M12 17h.01"/></svg></span>
         <p><strong>Japanese and Chinese depend on the vector pass.</strong> FTS5's tokenizer splits on whitespace, so languages without space boundaries get no useful BM25 recall.</p>
       </div>
-      <div class="honesty-item">
+      <div class="honesty-item reveal">
         <span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 2 20h20L12 3Z"/><path d="M12 10v4M12 17h.01"/></svg></span>
         <p><strong>Rebasing strands nodes.</strong> Rewritten history leaves nodes for unreachable commits. A targeted prune doesn't exist yet — <code>sync --rebuild</code> forces a clean re-scan.</p>
       </div>
-      <div class="honesty-item">
+      <div class="honesty-item reveal">
         <span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 2 20h20L12 3Z"/><path d="M12 10v4M12 17h.01"/></svg></span>
         <p><strong>Session-summary titles depend on a 3B model following instructions</strong>, which it does about a third of the time. The fallback keeps them specific, not elegant.</p>
       </div>
-      <div class="honesty-item">
+      <div class="honesty-item reveal">
         <span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 2 20h20L12 3Z"/><path d="M12 10v4M12 17h.01"/></svg></span>
         <p><strong>Cross-project recall favours breadth.</strong> Each repo's hits are fused by rank, so a project with only a mediocre match still contributes a result — there's no per-project quality weight.</p>
       </div>
@@ -265,13 +280,13 @@ npx nexusmem sync</pre>
 
 <section id="quickstart" aria-labelledby="quickstart-head">
   <div class="wrap">
-    <div class="section-head">
+    <div class="section-head reveal">
       <div class="kicker">Try it</div>
       <h2 id="quickstart-head">Two minutes, inside any git repo</h2>
       <p>Requires Node 22+ and git. Ollama is optional and only affects semantic search.</p>
     </div>
-    <div class="quickstart-grid">
-      <div class="code-block">
+    <div class="quickstart-grid reveal-group">
+      <div class="code-block reveal">
         <div class="code-head">
           <span>CLI</span>
           <button class="copy-btn" data-copy="npx nexusmem init&#10;npx nexusmem sync&#10;npx nexusmem query &quot;why did the retry fail&quot;">
@@ -283,7 +298,7 @@ npx nexusmem sync</pre>
 npx nexusmem sync
 npx nexusmem query "why did the retry fail"</pre>
       </div>
-      <div class="code-block">
+      <div class="code-block reveal">
         <div class="code-head">
           <span>MCP (agent config)</span>
           <button class="copy-btn" data-copy='{&#10;  &quot;mcpServers&quot;: {&#10;    &quot;nexusmem&quot;: {&#10;      &quot;command&quot;: &quot;npx&quot;,&#10;      &quot;args&quot;: [&quot;-y&quot;, &quot;nexusmem&quot;, &quot;mcp&quot;]&#10;    }&#10;  }&#10;}'>

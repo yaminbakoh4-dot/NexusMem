@@ -3,9 +3,15 @@
   "configurations": [
     {
       "name": "website",
-      "runtimeExecutable": "python",
-      "runtimeArgs": ["-m", "http.server", "4173", "--directory", "website"],
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["serve", "website", "-l", "4173"],
       "port": 4173
+    },
+    {
+      "name": "website-python-fallback",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "4174", "--directory", "website"],
+      "port": 4174
     }
   ]
 }
