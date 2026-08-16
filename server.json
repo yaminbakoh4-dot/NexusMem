@@ -1,0 +1,36 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.yaminbkk/nexusmem",
+  "description": "Local-first memory for AI coding agents: shell history with exit codes, git diffs, docs, MCP.",
+  "version": "0.3.2",
+  "repository": {
+    "url": "https://github.com/yaminbkk/NexusMem",
+    "source": "github",
+    "id": "1327492703"
+  },
+  "websiteUrl": "https://nexus-mem.vercel.app",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "nexusmem",
+      "version": "0.3.2",
+      "runtimeHint": "npx",
+      "runtimeArguments": [
+        {
+          "type": "named",
+          "name": "-y"
+        }
+      ],
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "mcp"
+        }
+      ],
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}

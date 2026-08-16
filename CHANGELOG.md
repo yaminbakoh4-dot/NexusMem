@@ -9,8 +9,15 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
 
 ## [Unreleased]
 
+## [0.3.2] — 2026-08-16
+
 ### Added
 
+- **`mcpName` field in `package.json`**, required by the official MCP registry
+  (registry.modelcontextprotocol.io) to verify that whoever publishes `server.json` under
+  `io.github.yaminbkk/nexusmem` also controls the `nexusmem` npm package itself — the registry
+  rejects a publish attempt otherwise. No behavior change for CLI/MCP users; this is purely a
+  registry-ownership proof.
 - **`list_recent_memory` MCP tool** — chronological listing of a repository's most recently
   remembered nodes (git commits, diffs, shell commands, docs, conversation, session summaries),
   newest first. Distinct from `search_memory`: no query, just "what has this project's memory
@@ -27,6 +34,10 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
   `fix(store): reconcile memory stranded by a changed git remote URL` migrates what it can) — a
   live-id-only prune could not reach nodes reconciliation deliberately left in place. Exposed on both
   the CLI and the MCP `sync_project` tool.
+- **Discussion-heuristic failure→fix chains now surface**, tightened to an AND-joined significant-
+  token match instead of the original OR match. Re-verified against this repo's own real database:
+  5/5 discussion links correct (was ~half wrong when it shipped unsurfaced in 0.3.0). Chains now
+  follow across projects in `query --all-projects` too.
 
 ### Fixed
 
@@ -239,7 +250,9 @@ First public release.
   there is no local-model summarization pass, and the conversation collector has never been audited
   for the stale-node bug that was found and fixed in the docs collector.
 
-[Unreleased]: https://github.com/yaminbkk/NexusMem/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/yaminbkk/NexusMem/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/yaminbkk/NexusMem/compare/v0.3.1...v0.3.2
+[0.3.1]: https://github.com/yaminbkk/NexusMem/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/yaminbkk/NexusMem/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/yaminbkk/NexusMem/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/yaminbkk/NexusMem/compare/v0.1.1...v0.1.2
