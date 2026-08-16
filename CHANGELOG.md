@@ -15,6 +15,14 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
   remote can leave stale data under the old identity; status reports both the identity and node
   counts and points to `sync --prune-source <name>` instead of leaving that data discoverable only
   through a raw SQLite query.
+- **JS/TS import-graph edges.** `nexusmem scan-structure` previews (and `sync` now ingests) file→file
+  import relationships across a project's tracked `.ts`/`.tsx`/`.js`/`.jsx` files — a dependency-free
+  regex extractor (`src/structure/extract.ts`) resolves relative `import`/`export ... from`/`require`/
+  dynamic-`import` specifiers against the tracked-path set, correctly rewriting the common TS/ESM
+  `./foo.js` specifier back to its real `foo.ts` source. Stored in a new `file_edges` table (schema
+  v4), replaced wholesale on every sync since edges describe current tree state, not history. Surfaced
+  as a `structure` line in `nexusmem status`; not yet wired into `query` ranking or exposed as an MCP
+  tool — that's a follow-on design question, not this pass's job.
 
 ## [0.3.3] — 2026-08-16
 
