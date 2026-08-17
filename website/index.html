@@ -278,7 +278,9 @@ npx nexusmem sync</pre>
       Replayed, not live-executed — this static site has no backend to run a real query against. The full recorded
       set is <a href="https://github.com/yaminbkk/NexusMem/blob/master/bench/results/vite-final.json" target="_blank" rel="noopener"><code>bench/results/vite-final.json</code></a>,
       produced by the same <a href="https://github.com/yaminbkk/NexusMem/blob/master/scripts/benchmark.ts" target="_blank" rel="noopener"><code>scripts/benchmark.ts</code></a> linked above. To run it for real, against your own repo:
-      <code>npx nexusmem init &amp;&amp; npx nexusmem sync &amp;&amp; npx nexusmem query "…"</code>.
+      <code>npx nexusmem init &amp;&amp; npx nexusmem sync &amp;&amp; npx nexusmem query "…"</code>. Page counts in the output are a rounded
+      estimate (~667 tokens/page, from OpenAI's own ~750-words-per-1,000-tokens rule of thumb) — a way to picture the token
+      counts, not an exact measurement.
     </p>
   </div>
 </section>

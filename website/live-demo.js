@@ -34,6 +34,14 @@ const VITE_BENCH = [
     const p = n * 100;
     return (p >= 99.95 ? p.toFixed(2) : p.toFixed(1)) + "%";
   };
+
+  // rough tokens-per-page so raw token counts translate into something visual: OpenAI's own
+  // rule of thumb is ~750 words per 1,000 tokens; at ~500 words/page that's ~667 tokens/page.
+  const PAGE_TOKENS = 667;
+  const pages = (tokens) => {
+    const p = Math.round(tokens / PAGE_TOKENS);
+    return p <= 1 ? "~1 page" : `~${p.toLocaleString("en-US")} pages`;
+  };
   const norm = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 
   function scrollToEnd() {
@@ -61,11 +69,12 @@ const VITE_BENCH = [
     block.className = "ps-line ps-result";
     let html = "";
     if (matchedNote) html += `<div class="muted">${matchedNote}</div>`;
-    html += `<div class="ps-meta">${entry.nodes} nodes packed · ${entry.resolved}/${entry.touched} files resolved · <span class="hit-title">${fmt(entry.tokens)} tokens</span> · ${entry.ms}ms</div>`;
+    html += `<div class="ps-meta">${entry.nodes} nodes packed · ${entry.resolved}/${entry.touched} files resolved · <span class="hit-title">${fmt(entry.tokens)} tokens</span> <span class="muted">(${pages(entry.tokens)})</span> · ${entry.ms}ms</div>`;
     html += `<div class="ps-savings">`;
-    html += `<div>full files &nbsp;${fmt(entry.baseFull)} tokens &rarr; <span class="save">${pct(entry.saveFull)} saved</span></div>`;
-    html += `<div>git log dump ${fmt(entry.baseLog)} tokens &rarr; <span class="save">${pct(entry.saveLog)} saved</span></div>`;
+    html += `<div>full files &nbsp;${fmt(entry.baseFull)} tokens <span class="muted">(${pages(entry.baseFull)})</span> &rarr; <span class="save">${pct(entry.saveFull)} saved</span></div>`;
+    html += `<div>git log dump ${fmt(entry.baseLog)} tokens <span class="muted">(${pages(entry.baseLog)})</span> &rarr; <span class="save">${pct(entry.saveLog)} saved</span></div>`;
     html += `</div>`;
+    html += `<div class="muted ps-plain">so instead of reading ${pages(entry.baseFull)} of full files, your agent reads ${pages(entry.tokens)}.</div>`;
     block.innerHTML = html;
     output.appendChild(block);
     scrollToEnd();
@@ -94,10 +103,11 @@ const VITE_BENCH = [
     const avgLog = VITE_BENCH.reduce((s, e) => s + e.saveLog, 0) / n;
     let html = `<div>aggregate over ${n} recorded prompts, vitejs/vite:</div>`;
     html += `<div class="ps-savings">`;
-    html += `<div>packed context &nbsp;${fmt(sumTokens)} tokens total</div>`;
-    html += `<div>full files &nbsp;&nbsp;&nbsp;&nbsp;${fmt(sumFull)} tokens &rarr; <span class="save">${pct(1 - sumTokens / sumFull)} saved</span> (avg per-query ${pct(avgFull)})</div>`;
-    html += `<div>git log dump ${fmt(sumLog)} tokens &rarr; <span class="save">${pct(1 - sumTokens / sumLog)} saved</span> (avg per-query ${pct(avgLog)})</div>`;
+    html += `<div>packed context &nbsp;${fmt(sumTokens)} tokens total <span class="muted">(${pages(sumTokens)})</span></div>`;
+    html += `<div>full files &nbsp;&nbsp;&nbsp;&nbsp;${fmt(sumFull)} tokens <span class="muted">(${pages(sumFull)})</span> &rarr; <span class="save">${pct(1 - sumTokens / sumFull)} saved</span> (avg per-query ${pct(avgFull)})</div>`;
+    html += `<div>git log dump ${fmt(sumLog)} tokens <span class="muted">(${pages(sumLog)})</span> &rarr; <span class="save">${pct(1 - sumTokens / sumLog)} saved</span> (avg per-query ${pct(avgLog)})</div>`;
     html += `</div>`;
+    html += `<div class="muted ps-plain">so instead of reading ${pages(sumFull)} of full files across all 16, your agent reads ${pages(sumTokens)}.</div>`;
     printLine(html);
   }
 
