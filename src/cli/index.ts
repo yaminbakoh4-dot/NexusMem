@@ -6,6 +6,8 @@ import { GitCrashError, GitSpawnError } from '../git/exec.js';
 import { NotAGitRepositoryError } from '../git/repo.js';
 import { ProfileNotFoundError } from '../hooks/install.js';
 import { ForeignGitHookError } from '../hooks/install-git-precommit.js';
+import { DenyListError } from '../store/deny-list.js';
+import { runForget } from './commands/forget.js';
 import { runHookGitInstall, runHookGitRemove, runHookGitStatus } from './commands/hook-git.js';
 import { runHookInstall, runHookRemove, runHookStatus } from './commands/hook.js';
 import { runInit } from './commands/init.js';
@@ -35,7 +37,8 @@ function isExpected(err: unknown): err is Error {
     err instanceof GitCrashError ||
     err instanceof ConfigError ||
     err instanceof ProfileNotFoundError ||
-    err instanceof ForeignGitHookError
+    err instanceof ForeignGitHookError ||
+    err instanceof DenyListError
   );
 }
 
@@ -194,6 +197,32 @@ program
         noVector: !options.vector,
         allProjects: options.allProjects,
         json: options.json,
+      }),
+    )(),
+  );
+
+program
+  .command('forget')
+  .description(
+    'Permanently deny-list a value: deletes matching nodes now and blocks it from ever being re-ingested (irreversible)',
+  )
+  .argument('[value]', 'exact text to forget (see --regex); omit with --list')
+  .option('-C, --cwd <path>', 'repository path', process.cwd())
+  .option('--regex', 'treat <value> as a regular expression instead of a literal substring', false)
+  .option('--ignore-case', 'case-insensitive match', false)
+  .option('--reason <text>', 'free-text note stored with the deny-list entry')
+  .option('--list', 'list active deny-list entries instead of forgetting a new value', false)
+  .option('--yes', 'confirm the irreversible delete + deny-list write', false)
+  .action((value: string | undefined, options) =>
+    guard(() =>
+      runForget({
+        cwd: options.cwd,
+        value,
+        regex: options.regex,
+        ignoreCase: options.ignoreCase,
+        reason: options.reason,
+        list: options.list,
+        yes: options.yes,
       }),
     )(),
   );
