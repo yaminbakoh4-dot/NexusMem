@@ -81,6 +81,7 @@ function addStats(into: IngestStats, from: IngestStats): void {
   into.inserted += from.inserted;
   into.updated += from.updated;
   into.unchanged += from.unchanged;
+  into.denied += from.denied;
 }
 
 async function syncGit(
@@ -91,7 +92,7 @@ async function syncGit(
   config: Awaited<ReturnType<typeof loadContext>>['config'],
   log: (line: string) => void,
 ): Promise<{ totals: IngestStats; seen: number }> {
-  const totals: IngestStats = { inserted: 0, updated: 0, unchanged: 0 };
+  const totals: IngestStats = { inserted: 0, updated: 0, unchanged: 0, denied: 0 };
 
   if (!repo.head) {
     log(`${pc.yellow('git')} skipped -- repository has no commits yet`);
@@ -159,7 +160,7 @@ async function syncDiffs(
   config: Awaited<ReturnType<typeof loadContext>>['config'],
   log: (line: string) => void,
 ): Promise<{ totals: IngestStats; seen: number }> {
-  const totals: IngestStats = { inserted: 0, updated: 0, unchanged: 0 };
+  const totals: IngestStats = { inserted: 0, updated: 0, unchanged: 0, denied: 0 };
 
   if (!repo.head) return { totals, seen: 0 };
   if (!config.sources.diff.enabled) {
@@ -223,7 +224,7 @@ async function syncShell(
   config: Awaited<ReturnType<typeof loadContext>>['config'],
   log: (line: string) => void,
 ): Promise<{ totals: IngestStats; seen: number }> {
-  const totals: IngestStats = { inserted: 0, updated: 0, unchanged: 0 };
+  const totals: IngestStats = { inserted: 0, updated: 0, unchanged: 0, denied: 0 };
 
   if (!config.sources.shell.enabled) {
     log(`${pc.dim('shell')} disabled in config`);
@@ -272,7 +273,7 @@ function syncConversation(
   log: (line: string) => void,
   forceEnabled: boolean | undefined,
 ): { totals: IngestStats; seen: number } {
-  const totals: IngestStats = { inserted: 0, updated: 0, unchanged: 0 };
+  const totals: IngestStats = { inserted: 0, updated: 0, unchanged: 0, denied: 0 };
   const enabled = forceEnabled ?? config.sources.conversation.enabled;
 
   if (!enabled) {
@@ -306,7 +307,7 @@ async function syncSessions(
   config: Awaited<ReturnType<typeof loadContext>>['config'],
   log: (line: string) => void,
 ): Promise<{ totals: IngestStats; seen: number }> {
-  const totals: IngestStats = { inserted: 0, updated: 0, unchanged: 0 };
+  const totals: IngestStats = { inserted: 0, updated: 0, unchanged: 0, denied: 0 };
   const settings = config.sources.session;
 
   // Opt-in and silent when off, same as the conversation source.
@@ -359,7 +360,7 @@ async function syncDocs(
   config: Awaited<ReturnType<typeof loadContext>>['config'],
   log: (line: string) => void,
 ): Promise<{ totals: IngestStats; seen: number }> {
-  const totals: IngestStats = { inserted: 0, updated: 0, unchanged: 0 };
+  const totals: IngestStats = { inserted: 0, updated: 0, unchanged: 0, denied: 0 };
 
   if (!config.sources.docs.enabled) {
     log(`${pc.dim('docs')} disabled in config`);
@@ -633,7 +634,7 @@ export async function runSync(opts: SyncOptions): Promise<number> {
 
     store.markSynced(projectId);
 
-    const totals: IngestStats = { inserted: 0, updated: 0, unchanged: 0 };
+    const totals: IngestStats = { inserted: 0, updated: 0, unchanged: 0, denied: 0 };
     addStats(totals, git.totals);
     addStats(totals, diffs.totals);
     addStats(totals, shell.totals);
@@ -649,11 +650,12 @@ export async function runSync(opts: SyncOptions): Promise<number> {
     const docsPart = config.sources.docs.enabled ? `, ${docs.seen} doc section(s)` : '';
     const diffPart = config.sources.diff.enabled ? `, ${diffs.seen} file diff(s)` : '';
     const structurePart = config.sources.structure.enabled ? `, ${structure.edges} import edge(s)` : '';
+    const deniedPart = totals.denied > 0 ? `  ${pc.red(`-${totals.denied} denied`)}` : '';
 
     out(
       [
         `${pc.green('synced')} ${git.seen} commit(s)${diffPart}, ${shell.seen} shell entr${shell.seen === 1 ? 'y' : 'ies'}${conversationPart}${sessionPart}${docsPart}${structurePart} in ${elapsed}s`,
-        `  ${pc.green(`+${totals.inserted} new`)}  ${pc.yellow(`~${totals.updated} updated`)}  ${pc.dim(`=${totals.unchanged} unchanged`)}`,
+        `  ${pc.green(`+${totals.inserted} new`)}  ${pc.yellow(`~${totals.updated} updated`)}  ${pc.dim(`=${totals.unchanged} unchanged`)}${deniedPart}`,
         `  ${pc.dim(`${stats.total} node(s) total across ${stats.distinctFiles} file path(s)`)}`,
         '',
       ].join('\n') + embedLine + linkLine,

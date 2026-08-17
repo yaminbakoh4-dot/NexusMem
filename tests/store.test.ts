@@ -6,6 +6,7 @@ import type { MemoryNode } from '../src/core/types.js';
 import { MemoryStore } from '../src/store/store.js';
 import { currentSchemaVersion, LATEST_SCHEMA_VERSION } from '../src/store/schema.js';
 import { toMatchQuery } from '../src/store/fts.js';
+import { insertDenyListEntry } from '../src/store/deny-list.js';
 
 const PROJECT = 'proj-a';
 
@@ -45,8 +46,8 @@ describe('MemoryStore', () => {
   it('is idempotent: re-ingesting identical nodes changes nothing', () => {
     const nodes = [node({ id: 'a' }), node({ id: 'b' })];
 
-    expect(store.upsertNodes(nodes)).toEqual({ inserted: 2, updated: 0, unchanged: 0 });
-    expect(store.upsertNodes(nodes)).toEqual({ inserted: 0, updated: 0, unchanged: 2 });
+    expect(store.upsertNodes(nodes)).toEqual({ inserted: 2, updated: 0, unchanged: 0, denied: 0 });
+    expect(store.upsertNodes(nodes)).toEqual({ inserted: 0, updated: 0, unchanged: 2, denied: 0 });
     expect(store.stats(PROJECT).total).toBe(2);
   });
 
@@ -56,6 +57,7 @@ describe('MemoryStore', () => {
       inserted: 0,
       updated: 1,
       unchanged: 0,
+      denied: 0,
     });
   });
 
@@ -316,6 +318,67 @@ describe('MemoryStore.listRecentNodes', () => {
 
   it('returns an empty list for a project with no nodes', () => {
     expect(store.listRecentNodes('no-such-project')).toEqual([]);
+  });
+});
+
+describe('MemoryStore.upsertNodes deny-list', () => {
+  let dir: string;
+  let store: MemoryStore;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'nexusmem-'));
+    store = MemoryStore.open(join(dir, 'memory.db'));
+  });
+
+  afterEach(() => {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('skips inserting a node whose body matches an active literal deny-list entry', () => {
+    insertDenyListEntry(store.raw, {
+      projectId: PROJECT,
+      matchType: 'literal',
+      pattern: 'sk-secret-123',
+      ignoreCase: false,
+      reason: null,
+    });
+
+    const stats = store.upsertNodes([
+      node({ id: 'a', body: 'export API_KEY=sk-secret-123' }),
+      node({ id: 'b', body: 'unrelated content' }),
+    ]);
+
+    expect(stats).toEqual({ inserted: 1, updated: 0, unchanged: 0, denied: 1 });
+    expect(store.listRecentNodes(PROJECT).map((n) => n.id)).toEqual(['b']);
+  });
+
+  it('matches a regex entry, case-insensitively when requested', () => {
+    insertDenyListEntry(store.raw, {
+      projectId: PROJECT,
+      matchType: 'regex',
+      pattern: 'sk-[a-z0-9]+',
+      ignoreCase: true,
+      reason: null,
+    });
+
+    const stats = store.upsertNodes([node({ id: 'a', body: 'token SK-ABC123 leaked' })]);
+
+    expect(stats).toEqual({ inserted: 0, updated: 0, unchanged: 0, denied: 1 });
+  });
+
+  it('a deny-list entry scoped to another project does not affect this one', () => {
+    insertDenyListEntry(store.raw, {
+      projectId: 'proj-other',
+      matchType: 'literal',
+      pattern: 'sk-secret-123',
+      ignoreCase: false,
+      reason: null,
+    });
+
+    const stats = store.upsertNodes([node({ id: 'a', body: 'export API_KEY=sk-secret-123' })]);
+
+    expect(stats).toEqual({ inserted: 1, updated: 0, unchanged: 0, denied: 0 });
   });
 });
 

@@ -4,6 +4,7 @@ import { dirname } from 'node:path';
 import * as sqliteVec from 'sqlite-vec';
 import type { MemoryNode, NodeKind } from '../core/types.js';
 import type { FileEdge } from '../structure/types.js';
+import { firstMatchingEntry, listDenyListEntries, type DenyListEntry } from './deny-list.js';
 import { toMatchQuery } from './fts.js';
 import { migrate } from './schema.js';
 
@@ -22,6 +23,8 @@ export interface IngestStats {
   inserted: number;
   updated: number;
   unchanged: number;
+  /** Skipped because it matched an active deny-list entry -- see `forget`. */
+  denied: number;
 }
 
 export interface ProjectRecord {
@@ -196,12 +199,26 @@ export class MemoryStore {
          deletions = excluded.deletions, is_binary = excluded.is_binary`,
     );
 
-    const stats: IngestStats = { inserted: 0, updated: 0, unchanged: 0 };
+    const stats: IngestStats = { inserted: 0, updated: 0, unchanged: 0, denied: 0 };
+    // Loaded lazily, once per distinct project id seen in the batch -- a
+    // batch is almost always a single project's sync, so this is one query
+    // in practice, not N.
+    const denyEntriesByProject = new Map<string, DenyListEntry[]>();
 
     const run = this.db.transaction((batch: readonly MemoryNode[]) => {
       const now = Date.now();
 
       for (const node of batch) {
+        let denyEntries = denyEntriesByProject.get(node.projectId);
+        if (!denyEntries) {
+          denyEntries = listDenyListEntries(this.db, node.projectId);
+          denyEntriesByProject.set(node.projectId, denyEntries);
+        }
+        if (firstMatchingEntry(denyEntries, node)) {
+          stats.denied += 1;
+          continue;
+        }
+
         const prior = exists.get(node.id) as { body: string; signal: number; title: string } | undefined;
 
         if (prior) {
