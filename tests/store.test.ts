@@ -382,6 +382,110 @@ describe('MemoryStore.upsertNodes deny-list', () => {
   });
 });
 
+describe('MemoryStore.forget / previewForget', () => {
+  let dir: string;
+  let store: MemoryStore;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'nexusmem-'));
+    store = MemoryStore.open(join(dir, 'memory.db'));
+  });
+
+  afterEach(() => {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('previewForget counts matches by source without deleting anything', () => {
+    store.upsertNodes([
+      node({ id: 'a', source: 'shell:pwsh-hook', body: 'export API_KEY=sk-secret-123' }),
+      node({ id: 'b', source: 'git', body: 'unrelated' }),
+    ]);
+
+    const preview = store.previewForget(PROJECT, [], { matchType: 'literal', pattern: 'sk-secret-123', ignoreCase: false, reason: null });
+
+    expect(preview).toEqual([{ projectId: PROJECT, source: 'shell:pwsh-hook', count: 1 }]);
+    expect(store.listRecentNodes(PROJECT).map((n) => n.id).sort()).toEqual(['a', 'b']);
+  });
+
+  it('deletes every matching node, leaves a control node untouched, and writes one deny_list + one tombstones row', () => {
+    store.upsertNodes([
+      node({ id: 'a', body: 'export API_KEY=sk-secret-123' }),
+      node({ id: 'control', body: 'unrelated content' }),
+    ]);
+
+    const result = store.forget(PROJECT, [], { matchType: 'literal', pattern: 'sk-secret-123', ignoreCase: false, reason: 'test leak' });
+
+    expect(result.removed).toBe(1);
+    expect(store.listRecentNodes(PROJECT).map((n) => n.id)).toEqual(['control']);
+
+    const denyRows = store.raw.prepare('SELECT COUNT(*) AS c FROM deny_list WHERE id = ?').get(result.entryId) as { c: number };
+    expect(denyRows.c).toBe(1);
+    const tombstoneRows = store.raw.prepare('SELECT COUNT(*) AS c FROM tombstones WHERE deny_list_id = ?').get(result.entryId) as {
+      c: number;
+    };
+    expect(tombstoneRows.c).toBe(1);
+  });
+
+  it('the tombstone never contains the forgotten value -- hash-only, by design', () => {
+    const secret = 'sk-secret-hash-only-999';
+    store.upsertNodes([node({ id: 'a', body: `leaked: ${secret}` })]);
+
+    const result = store.forget(PROJECT, [], { matchType: 'literal', pattern: secret, ignoreCase: false, reason: null });
+
+    const row = store.raw.prepare('SELECT * FROM tombstones WHERE mutation_audit_id = ?').get(result.auditId);
+    expect(JSON.stringify(row).includes(secret)).toBe(false);
+  });
+
+  it('writes a mutation_audit row with the correct affected_count, even for a zero-match forget', () => {
+    const result = store.forget(PROJECT, [], { matchType: 'literal', pattern: 'never-appeared', ignoreCase: false, reason: null });
+
+    expect(result.removed).toBe(0);
+    const audit = store.raw.prepare('SELECT action, project_id, affected_count, succeeded FROM mutation_audit WHERE id = ?').get(
+      result.auditId,
+    ) as { action: string; project_id: string; affected_count: number; succeeded: number };
+    expect(audit).toEqual({ action: 'forget', project_id: PROJECT, affected_count: 0, succeeded: 1 });
+
+    const denyRows = store.raw.prepare('SELECT COUNT(*) AS c FROM deny_list WHERE project_id = ?').get(PROJECT) as { c: number };
+    expect(denyRows.c).toBe(1);
+  });
+
+  it('a future upsertNodes of identical content is denied, not re-inserted', () => {
+    const secret = 'sk-secret-resurrect-1';
+    const doomed = node({ id: 'a', body: `leaked: ${secret}` });
+    store.upsertNodes([doomed]);
+
+    store.forget(PROJECT, [], { matchType: 'literal', pattern: secret, ignoreCase: false, reason: null });
+
+    const stats = store.upsertNodes([doomed]);
+    expect(stats).toEqual({ inserted: 0, updated: 0, unchanged: 0, denied: 1 });
+    expect(store.stats(PROJECT).total).toBe(0);
+  });
+
+  it('sweeps otherProjectIds, mirroring pruneSourceNodes -- forgets a value under a stale prior project identity too', () => {
+    const STALE = 'stale-prior-id';
+    store.upsertNodes([node({ id: 'a', projectId: STALE, body: 'export API_KEY=sk-secret-stale' })]);
+
+    const result = store.forget(PROJECT, [STALE], { matchType: 'literal', pattern: 'sk-secret-stale', ignoreCase: false, reason: null });
+
+    expect(result.removed).toBe(1);
+    expect(store.stats(STALE).total).toBe(0);
+  });
+
+  it('rejects an empty pattern instead of silently denying every node', () => {
+    expect(() => store.previewForget(PROJECT, [], { matchType: 'literal', pattern: '  ', ignoreCase: false, reason: null })).toThrow();
+    expect(() => store.forget(PROJECT, [], { matchType: 'literal', pattern: '  ', ignoreCase: false, reason: null })).toThrow();
+  });
+
+  it('lists active deny-list entries for a project', () => {
+    store.forget(PROJECT, [], { matchType: 'literal', pattern: 'value-one', ignoreCase: false, reason: 'r1' });
+    store.forget(PROJECT, [], { matchType: 'regex', pattern: 'value-t[wo]+', ignoreCase: false, reason: null });
+
+    const entries = store.listDenyList(PROJECT);
+    expect(entries.map((e) => e.pattern)).toEqual(['value-one', 'value-t[wo]+']);
+  });
+});
+
 describe('toMatchQuery', () => {
   it('quotes tokens and adds prefix matching', () => {
     expect(toMatchQuery('refresh token')).toBe('"refresh"* OR "token"*');

@@ -4,7 +4,15 @@ import { dirname } from 'node:path';
 import * as sqliteVec from 'sqlite-vec';
 import type { MemoryNode, NodeKind } from '../core/types.js';
 import type { FileEdge } from '../structure/types.js';
-import { firstMatchingEntry, listDenyListEntries, type DenyListEntry } from './deny-list.js';
+import { sha256Hex } from '../core/ids.js';
+import {
+  firstMatchingEntry,
+  insertDenyListEntry,
+  listDenyListEntries,
+  validatePattern,
+  type DenyListEntry,
+  type DenyListInput,
+} from './deny-list.js';
 import { toMatchQuery } from './fts.js';
 import { migrate } from './schema.js';
 
@@ -96,6 +104,39 @@ export interface EmbeddableNode {
   id: string;
   title: string;
   body: string;
+}
+
+/** One source's worth of matches within one project identity, for `forget`'s dry-run preview. */
+export interface ForgetPreview {
+  projectId: string;
+  source: string;
+  count: number;
+}
+
+export interface ForgetResult {
+  removed: number;
+  entryId: number;
+  auditId: number;
+}
+
+interface ScannableNodeRow {
+  id: string;
+  kind: NodeKind;
+  project_id: string;
+  source: string;
+  ts: string;
+  signal: number;
+  title: string;
+  body: string;
+  meta: string;
+}
+
+function parseMeta(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
 }
 
 function epochOf(ts: string): number {
@@ -440,6 +481,126 @@ export class MemoryStore {
       this.db.prepare(`DELETE FROM nodes_vec WHERE rowid IN (SELECT rowid FROM nodes WHERE ${scope})`).run(params);
       return this.db.prepare(`DELETE FROM nodes WHERE ${scope}`).run(params).changes;
     })();
+  }
+
+  /**
+   * What `forget(projectId, otherProjectIds, input)` with these same
+   * arguments would remove, without writing anything -- the `forget` CLI
+   * command's dry-run default.
+   */
+  previewForget(projectId: string, otherProjectIds: readonly string[], input: DenyListInput): ForgetPreview[] {
+    validatePattern(input);
+    // id/createdAt are unused by matching -- this entry is never persisted,
+    // it only lets previewForget reuse firstMatchingEntry's exact matching
+    // logic instead of duplicating it.
+    const probeEntry: DenyListEntry = { id: -1, projectId, createdAt: 0, ...input };
+
+    const select = this.db.prepare('SELECT project_id, source, title, body, meta FROM nodes WHERE project_id = ?');
+    const counts = new Map<string, ForgetPreview>();
+
+    for (const scopeId of [projectId, ...otherProjectIds]) {
+      const rows = select.all(scopeId) as Array<Pick<ScannableNodeRow, 'project_id' | 'source' | 'title' | 'body' | 'meta'>>;
+      for (const row of rows) {
+        if (!firstMatchingEntry([probeEntry], { title: row.title, body: row.body, meta: parseMeta(row.meta) })) continue;
+        const key = `${row.project_id} ${row.source}`;
+        const existing = counts.get(key);
+        if (existing) existing.count += 1;
+        else counts.set(key, { projectId: row.project_id, source: row.source, count: 1 });
+      }
+    }
+
+    return [...counts.values()];
+  }
+
+  /**
+   * Permanently deny-list a value and delete every node it currently matches
+   * across `projectId` + `otherProjectIds` (the same sweep `pruneSourceNodes`
+   * uses for a repo's stale prior identities).
+   *
+   * Unlike `pruneSourceNodes`, this doesn't just delete: the deny-list entry
+   * written here is consulted by `upsertNodes` and `reconcile.ts` on every
+   * future write, so a value forgotten today cannot be re-derived from an
+   * append-only source (the shell-hook log, a full transcript re-read) on a
+   * later `sync --rebuild`. Each removed node leaves a hash-only tombstone
+   * (never the content itself) and the whole operation writes one
+   * `mutation_audit` row, whether or not anything matched -- pre-emptively
+   * blocking a value that hasn't appeared yet is a valid, auditable call.
+   */
+  forget(projectId: string, otherProjectIds: readonly string[], input: DenyListInput): ForgetResult {
+    return this.db.transaction((): ForgetResult => {
+      const entry = insertDenyListEntry(this.db, { ...input, projectId });
+      const startedAt = Date.now();
+
+      // Written before the delete loop so tombstones can reference a real
+      // mutation_audit.id (the FK the schema enforces); affected_count and
+      // finished_at are filled in once the sweep is done.
+      const auditId = Number(
+        this.db
+          .prepare(
+            `INSERT INTO mutation_audit (action, project_id, detail, affected_count, succeeded, error, started_at, finished_at)
+             VALUES ('forget', @projectId, @detail, 0, 1, NULL, @startedAt, @startedAt)`,
+          )
+          .run({
+            projectId,
+            detail: JSON.stringify({
+              pattern: input.pattern,
+              matchType: input.matchType,
+              ignoreCase: input.ignoreCase,
+              reason: input.reason,
+              scopeProjectIds: [projectId, ...otherProjectIds],
+            }),
+            startedAt,
+          }).lastInsertRowid,
+      );
+
+      const select = this.db.prepare(
+        'SELECT id, kind, project_id, source, ts, signal, title, body, meta FROM nodes WHERE project_id = ?',
+      );
+      const dropEmbedding = this.db.prepare('DELETE FROM nodes_vec WHERE rowid = (SELECT rowid FROM nodes WHERE id = ?)');
+      const deleteNode = this.db.prepare('DELETE FROM nodes WHERE id = ?');
+      const insertTombstone = this.db.prepare(
+        `INSERT INTO tombstones
+           (node_id, project_id, kind, source, ts, signal, body_sha256, title_sha256, body_length, deny_list_id, mutation_audit_id, removed_at)
+         VALUES (@nodeId, @projectId, @kind, @source, @ts, @signal, @bodySha256, @titleSha256, @bodyLength, @denyListId, @mutationAuditId, @removedAt)`,
+      );
+
+      let removed = 0;
+      for (const scopeId of [projectId, ...otherProjectIds]) {
+        const rows = select.all(scopeId) as ScannableNodeRow[];
+        for (const row of rows) {
+          if (!firstMatchingEntry([entry], { title: row.title, body: row.body, meta: parseMeta(row.meta) })) continue;
+
+          dropEmbedding.run(row.id);
+          insertTombstone.run({
+            nodeId: row.id,
+            projectId: row.project_id,
+            kind: row.kind,
+            source: row.source,
+            ts: row.ts,
+            signal: row.signal,
+            bodySha256: sha256Hex(row.body),
+            titleSha256: sha256Hex(row.title),
+            bodyLength: row.body.length,
+            denyListId: entry.id,
+            mutationAuditId: auditId,
+            removedAt: Date.now(),
+          });
+          deleteNode.run(row.id);
+          removed += 1;
+        }
+      }
+
+      this.db
+        .prepare('UPDATE mutation_audit SET affected_count = ?, finished_at = ? WHERE id = ?')
+        .run(removed, Date.now(), auditId);
+
+      return { removed, entryId: entry.id, auditId };
+    })();
+  }
+
+  /** Active deny-list entries for one project, oldest first. */
+  listDenyList(projectId: string): DenyListEntry[] {
+    return listDenyListEntries(this.db, projectId);
   }
 
   /**
