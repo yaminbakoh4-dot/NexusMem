@@ -318,10 +318,15 @@ optimizing, and it is somebody else's process.
   against this repo's own memory, switching to the joint cap moved the section that answered the
   question up in three of them (the rationale section for "why BM25 before vector search" went from
   rank 4 to rank 1) and displaced no query's correct top hit.
+- **`forget` is per-repository, not global.** Its deny-list lives in the one `.nexusmem/memory.db` it
+  ran against (plus that repo's stale prior identities, same scope `--prune-source` already uses). A
+  value that leaked into shell history from several repositories needs `forget` run once per repo —
+  there is no shared, machine-wide deny-list across every project you have synced.
 
 ## Commands
 
-`init`, `sync`, `query <text>`, `status`, `projects`, `mcp`, and `hook install|remove|status`.
+`init`, `sync`, `query <text>`, `status`, `projects`, `mcp`, `forget <value>`, and
+`hook install|remove|status`.
 
 There are also five dry-run previews (`scan-git`, `scan-diff`, `scan-shell`, `scan-docs`,
 `scan-conversation`)
@@ -333,6 +338,14 @@ Every command takes `-C <path>` to target another repository. On `sync`, `--conv
 transcript source in for one run without persisting it, `--no-embed` skips the vector pass,
 `--link-failures` builds the failure → fix chains described above, and `--rebuild` drops the
 project's nodes and re-ingests from scratch.
+
+`sync --prune-source <name>` deletes an entire collector source (e.g. `shell:pwsh`); `forget <value>`
+is the finer-grained complement — it deletes every node matching one exact string (or `--regex`
+pattern) *and* writes a standing deny-list entry so the value can never be re-ingested, even by a
+later `sync --rebuild` re-reading the append-only shell-hook log or a full transcript scan. Every
+removal leaves a hash-only tombstone, never the forgotten content itself. Both are dry-run by
+default; `--yes` confirms. See [`docs/forget-mechanism.md`](docs/forget-mechanism.md) for why this
+exists.
 
 ## Recall across projects
 

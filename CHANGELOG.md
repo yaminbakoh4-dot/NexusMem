@@ -9,6 +9,21 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
 
 ## [Unreleased]
 
+### Added
+
+- **`nexusmem forget <value>`: permanent, value-keyed deletion.** The finer-grained complement to
+  `sync --prune-source` (which only deletes at the whole-collector-source granularity): forgets one
+  exact string or `--regex` pattern, deleting every node it currently matches *and* writing a
+  standing deny-list entry so the value can never be re-ingested — closing the one gap an external
+  source-level review flagged as its most serious finding: the append-only shell-hook log (and a
+  full transcript re-read) are untouched by any prune, so `sync --rebuild` used to resurrect exactly
+  what had just been deleted. Every removal leaves a hash-only tombstone (never the forgotten
+  content itself — `body`/`title` are stored as sha256 only) and the whole operation writes one
+  `mutation_audit` row, whether or not anything matched. Dry-run by default, matching
+  `--prune-source`'s convention exactly; `--yes` confirms; `--list` shows active entries. Permanent
+  in v0 — no `--remove`, matching the existing irreversible framing of `--prune-source`/`--rebuild`.
+  See `docs/forget-mechanism.md`.
+
 ## [0.4.0] — 2026-08-16
 
 ### Added
