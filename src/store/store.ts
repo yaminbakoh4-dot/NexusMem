@@ -502,7 +502,7 @@ export class MemoryStore {
       const rows = select.all(scopeId) as Array<Pick<ScannableNodeRow, 'project_id' | 'source' | 'title' | 'body' | 'meta'>>;
       for (const row of rows) {
         if (!firstMatchingEntry([probeEntry], { title: row.title, body: row.body, meta: parseMeta(row.meta) })) continue;
-        const key = `${row.project_id} ${row.source}`;
+        const key = `${row.project_id} ${row.source}`;
         const existing = counts.get(key);
         if (existing) existing.count += 1;
         else counts.set(key, { projectId: row.project_id, source: row.source, count: 1 });
