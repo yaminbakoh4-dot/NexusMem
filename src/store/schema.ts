@@ -143,6 +143,57 @@ CREATE TABLE file_edges (
 CREATE INDEX idx_file_edges_to ON file_edges (project_id, to_path);
 `;
 
+// A value-keyed complement to pruneSourceNodes' source-level deletes: entries
+// here are consulted at every node-write seam (upsertNodes, reconcile.ts) so
+// a matching value is skipped on ingest instead of being re-derived from an
+// append-only log (shell-history.jsonl) or a full transcript re-read on the
+// next sync -- see store/deny-list.ts.
+const V5 = `
+CREATE TABLE deny_list (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id  TEXT NOT NULL,
+  match_type  TEXT NOT NULL,
+  pattern     TEXT NOT NULL,
+  ignore_case INTEGER NOT NULL DEFAULT 0,
+  reason      TEXT,
+  created_at  INTEGER NOT NULL
+);
+CREATE INDEX idx_deny_list_project ON deny_list (project_id);
+
+CREATE TABLE mutation_audit (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  action         TEXT NOT NULL,
+  project_id     TEXT NOT NULL,
+  detail         TEXT NOT NULL,
+  affected_count INTEGER NOT NULL,
+  succeeded      INTEGER NOT NULL,
+  error          TEXT,
+  started_at     INTEGER NOT NULL,
+  finished_at    INTEGER NOT NULL
+);
+CREATE INDEX idx_mutation_audit_project ON mutation_audit (project_id, started_at DESC);
+
+-- Hash-only: this table exists to prove a value was removed, not to retain a
+-- second copy of it. body/title are stored as sha256 so the record that
+-- something was forgotten never itself becomes something worth forgetting.
+CREATE TABLE tombstones (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  node_id           TEXT NOT NULL,
+  project_id        TEXT NOT NULL,
+  kind              TEXT NOT NULL,
+  source            TEXT NOT NULL,
+  ts                TEXT NOT NULL,
+  signal            REAL NOT NULL,
+  body_sha256       TEXT NOT NULL,
+  title_sha256      TEXT NOT NULL,
+  body_length       INTEGER NOT NULL,
+  deny_list_id      INTEGER NOT NULL REFERENCES deny_list (id),
+  mutation_audit_id INTEGER NOT NULL REFERENCES mutation_audit (id),
+  removed_at        INTEGER NOT NULL
+);
+CREATE INDEX idx_tombstones_project ON tombstones (project_id, removed_at DESC);
+`;
+
 interface Migration {
   version: number;
   up: (db: Database) => void;
@@ -153,6 +204,7 @@ const MIGRATIONS: Migration[] = [
   { version: 2, up: (db) => db.exec(V2) },
   { version: 3, up: (db) => db.exec(V3) },
   { version: 4, up: (db) => db.exec(V4) },
+  { version: 5, up: (db) => db.exec(V5) },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;
