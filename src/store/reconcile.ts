@@ -1,6 +1,7 @@
 import type { Database as DB } from 'better-sqlite3';
 import { makeNodeId, sha256Hex } from '../core/ids.js';
 import type { NodeKind } from '../core/types.js';
+import { firstMatchingEntry, listDenyListEntries, type DenyListEntry } from './deny-list.js';
 
 interface StoredNodeRow {
   id: string;
@@ -34,6 +35,8 @@ export interface ProjectIdReconcileResult {
   deduped: number;
   /** Rows left untouched under the old id -- their natural key can't be reconstructed. */
   skipped: number;
+  /** Rows dropped instead of carried forward because they match an active deny-list entry. */
+  denied: number;
 }
 
 function recomputeByNaturalKey(
@@ -43,7 +46,8 @@ function recomputeByNaturalKey(
   kind: NodeKind,
   source: string | null,
   computeNaturalKey: (row: StoredNodeRow, meta: Record<string, unknown>) => string | null,
-): { migrated: number; deduped: number; skipped: number } {
+  denyEntries: readonly DenyListEntry[],
+): { migrated: number; deduped: number; skipped: number; denied: number } {
   const rows = (
     source
       ? db.prepare('SELECT * FROM nodes WHERE project_id = ? AND kind = ? AND source = ?').all(oldProjectId, kind, source)
@@ -66,6 +70,7 @@ function recomputeByNaturalKey(
   let migrated = 0;
   let deduped = 0;
   let skipped = 0;
+  let denied = 0;
 
   for (const row of rows) {
     let meta: Record<string, unknown>;
@@ -79,6 +84,13 @@ function recomputeByNaturalKey(
     const naturalKey = computeNaturalKey(row, meta);
     if (naturalKey === null) {
       skipped += 1;
+      continue;
+    }
+
+    if (firstMatchingEntry(denyEntries, { title: row.title, body: row.body, meta })) {
+      dropEmbedding.run(row.id);
+      deleteNode.run(row.id);
+      denied += 1;
       continue;
     }
 
@@ -117,7 +129,7 @@ function recomputeByNaturalKey(
     deleteNode.run(row.id); // cascades node_files; nodes_fts cleans itself via its own AFTER DELETE trigger
   }
 
-  return { migrated, deduped, skipped };
+  return { migrated, deduped, skipped, denied };
 }
 
 /**
@@ -160,8 +172,18 @@ function recomputeByNaturalKey(
  */
 export function reconcileProjectId(db: DB, oldProjectId: string, newProjectId: string): ProjectIdReconcileResult {
   return db.transaction((): ProjectIdReconcileResult => {
-    const sessions = recomputeByNaturalKey(db, oldProjectId, newProjectId, 'session_summary', null, (_row, meta) =>
-      typeof meta.sessionKey === 'string' ? meta.sessionKey : null,
+    // Scoped to newProjectId (the destination): a row denied here must never
+    // land under the id reconcile is migrating things *into*.
+    const denyEntries = listDenyListEntries(db, newProjectId);
+
+    const sessions = recomputeByNaturalKey(
+      db,
+      oldProjectId,
+      newProjectId,
+      'session_summary',
+      null,
+      (_row, meta) => (typeof meta.sessionKey === 'string' ? meta.sessionKey : null),
+      denyEntries,
     );
 
     const hookShell = recomputeByNaturalKey(
@@ -172,7 +194,38 @@ export function reconcileProjectId(db: DB, oldProjectId: string, newProjectId: s
       'shell:pwsh-hook',
       (row, meta) =>
         typeof meta.command === 'string' ? `pwsh-hook:${row.ts}:${sha256Hex(meta.command).slice(0, 12)}` : null,
+      denyEntries,
     );
+
+    // conversation_turn rows are reassigned in place by the UPDATE below,
+    // not re-inserted through recomputeByNaturalKey -- a denied row would
+    // otherwise sail through that UPDATE untouched. Delete matches first,
+    // so the UPDATE simply finds nothing left to reassign for them.
+    let deniedConversationTurns = 0;
+    if (denyEntries.length > 0) {
+      const conversationTurns = db
+        .prepare(`SELECT id, title, body, meta FROM nodes WHERE project_id = ? AND kind = 'conversation_turn'`)
+        .all(oldProjectId) as Array<{ id: string; title: string; body: string; meta: string }>;
+
+      if (conversationTurns.length > 0) {
+        const dropEmbedding = db.prepare('DELETE FROM nodes_vec WHERE rowid = (SELECT rowid FROM nodes WHERE id = ?)');
+        const deleteNode = db.prepare('DELETE FROM nodes WHERE id = ?');
+
+        for (const row of conversationTurns) {
+          let meta: unknown;
+          try {
+            meta = JSON.parse(row.meta);
+          } catch {
+            meta = {};
+          }
+          if (firstMatchingEntry(denyEntries, { title: row.title, body: row.body, meta })) {
+            dropEmbedding.run(row.id);
+            deleteNode.run(row.id);
+            deniedConversationTurns += 1;
+          }
+        }
+      }
+    }
 
     const reassigned = db
       .prepare(`UPDATE nodes SET project_id = ? WHERE project_id = ? AND kind = 'conversation_turn'`)
@@ -184,6 +237,7 @@ export function reconcileProjectId(db: DB, oldProjectId: string, newProjectId: s
       reassigned,
       deduped: sessions.deduped + hookShell.deduped,
       skipped: sessions.skipped + hookShell.skipped,
+      denied: sessions.denied + hookShell.denied + deniedConversationTurns,
     };
   })();
 }

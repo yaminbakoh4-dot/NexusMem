@@ -549,6 +549,7 @@ export async function runSync(opts: SyncOptions): Promise<number> {
         result.reassigned > 0 ? `${result.reassigned} reassigned` : null,
         result.deduped > 0 ? `${result.deduped} already up to date` : null,
         result.skipped > 0 ? `${result.skipped} left behind (not reconstructable)` : null,
+        result.denied > 0 ? `${result.denied} denied (deny-list)` : null,
       ].filter((part): part is string => part !== null);
       if (parts.length > 0) {
         log(

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { makeNodeId, sha256Hex } from '../src/core/ids.js';
 import type { MemoryNode } from '../src/core/types.js';
 import { EMBEDDING_DIM } from '../src/store/schema.js';
+import { insertDenyListEntry } from '../src/store/deny-list.js';
 import { reconcileProjectId } from '../src/store/reconcile.js';
 import { MemoryStore } from '../src/store/store.js';
 
@@ -55,7 +56,7 @@ describe('reconcileProjectId', () => {
 
     const result = reconcileProjectId(store.raw, OLD, NEW);
 
-    expect(result).toEqual({ oldProjectId: OLD, migrated: 1, reassigned: 0, deduped: 0, skipped: 0 });
+    expect(result).toEqual({ oldProjectId: OLD, migrated: 1, reassigned: 0, deduped: 0, skipped: 0, denied: 0 });
     expect(store.stats(NEW).total).toBe(1);
     expect(store.stats(OLD).total).toBe(0);
 
@@ -76,7 +77,7 @@ describe('reconcileProjectId', () => {
 
     const result = reconcileProjectId(store.raw, OLD, NEW);
 
-    expect(result).toEqual({ oldProjectId: OLD, migrated: 0, reassigned: 0, deduped: 1, skipped: 0 });
+    expect(result).toEqual({ oldProjectId: OLD, migrated: 0, reassigned: 0, deduped: 1, skipped: 0, denied: 0 });
     expect(store.stats(NEW).total).toBe(1);
     expect(store.stats(OLD).total).toBe(0);
   });
@@ -107,7 +108,7 @@ describe('reconcileProjectId', () => {
 
     const result = reconcileProjectId(store.raw, OLD, NEW);
 
-    expect(result).toEqual({ oldProjectId: OLD, migrated: 0, reassigned: 0, deduped: 0, skipped: 0 });
+    expect(result).toEqual({ oldProjectId: OLD, migrated: 0, reassigned: 0, deduped: 0, skipped: 0, denied: 0 });
     expect(store.stats(OLD).total).toBe(1);
     expect(store.stats(NEW).total).toBe(0);
   });
@@ -118,11 +119,68 @@ describe('reconcileProjectId', () => {
 
     const result = reconcileProjectId(store.raw, OLD, NEW);
 
-    expect(result).toEqual({ oldProjectId: OLD, migrated: 0, reassigned: 1, deduped: 0, skipped: 0 });
+    expect(result).toEqual({ oldProjectId: OLD, migrated: 0, reassigned: 1, deduped: 0, skipped: 0, denied: 0 });
     expect(store.stats(OLD).total).toBe(0);
     expect(store.stats(NEW).total).toBe(1);
     const row = store.raw.prepare('SELECT id FROM nodes WHERE project_id = ?').get(NEW) as { id: string };
     expect(row.id).toBe(oldId);
+  });
+
+  it('drops a denied session_summary instead of migrating it, on the recomputeByNaturalKey path', () => {
+    const sessionKey = 'claude-code:leaked-1';
+    const oldId = makeNodeId(OLD, 'session_summary', sessionKey);
+    store.upsertNodes([
+      node({
+        id: oldId,
+        kind: 'session_summary',
+        projectId: OLD,
+        source: 'session:claude-code',
+        body: 'contains sk-secret-999',
+        meta: { sessionKey },
+      }),
+    ]);
+    insertDenyListEntry(store.raw, {
+      projectId: NEW,
+      matchType: 'literal',
+      pattern: 'sk-secret-999',
+      ignoreCase: false,
+      reason: null,
+    });
+
+    const result = reconcileProjectId(store.raw, OLD, NEW);
+
+    expect(result).toEqual({ oldProjectId: OLD, migrated: 0, reassigned: 0, deduped: 0, skipped: 0, denied: 1 });
+    expect(store.stats(OLD).total).toBe(0);
+    expect(store.stats(NEW).total).toBe(0);
+  });
+
+  it('drops a denied conversation_turn instead of letting the blanket UPDATE reassign it', () => {
+    const oldId = makeNodeId(OLD, 'conversation_turn', 'claude-code:leaked-uuid:0');
+    const keptId = makeNodeId(OLD, 'conversation_turn', 'claude-code:kept-uuid:0');
+    store.upsertNodes([
+      node({
+        id: oldId,
+        kind: 'conversation_turn',
+        projectId: OLD,
+        source: 'conversation:claude-code',
+        body: 'pasted sk-secret-777 by accident',
+      }),
+      node({ id: keptId, kind: 'conversation_turn', projectId: OLD, source: 'conversation:claude-code', body: 'unrelated turn' }),
+    ]);
+    insertDenyListEntry(store.raw, {
+      projectId: NEW,
+      matchType: 'literal',
+      pattern: 'sk-secret-777',
+      ignoreCase: false,
+      reason: null,
+    });
+
+    const result = reconcileProjectId(store.raw, OLD, NEW);
+
+    expect(result).toEqual({ oldProjectId: OLD, migrated: 0, reassigned: 1, deduped: 0, skipped: 0, denied: 1 });
+    expect(store.stats(NEW).total).toBe(1);
+    const row = store.raw.prepare('SELECT id FROM nodes WHERE project_id = ?').get(NEW) as { id: string };
+    expect(row.id).toBe(keptId);
   });
 
   it('does not touch git_commit, code_diff, or doc_section nodes -- fully re-derivable by a normal sync', () => {
@@ -134,7 +192,7 @@ describe('reconcileProjectId', () => {
 
     const result = reconcileProjectId(store.raw, OLD, NEW);
 
-    expect(result).toEqual({ oldProjectId: OLD, migrated: 0, reassigned: 0, deduped: 0, skipped: 0 });
+    expect(result).toEqual({ oldProjectId: OLD, migrated: 0, reassigned: 0, deduped: 0, skipped: 0, denied: 0 });
     expect(store.stats(OLD).total).toBe(3);
     expect(store.stats(NEW).total).toBe(0);
   });
@@ -168,7 +226,7 @@ describe('reconcileProjectId', () => {
 
     const result = reconcileProjectId(store.raw, OLD, NEW);
 
-    expect(result).toEqual({ oldProjectId: OLD, migrated: 0, reassigned: 0, deduped: 0, skipped: 1 });
+    expect(result).toEqual({ oldProjectId: OLD, migrated: 0, reassigned: 0, deduped: 0, skipped: 1, denied: 0 });
     expect(store.stats(OLD).total).toBe(1);
   });
 
