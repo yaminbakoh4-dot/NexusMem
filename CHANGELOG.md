@@ -9,6 +9,19 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
 
 ## [Unreleased]
 
+### Added
+
+- **`nexusmem forget --export <path>` / `forget --import <path>`: carry a deny-list across a clone or
+  restore.** `.nexusmem/` is gitignored by design, so `deny_list` never traveled with `git clone`/
+  `git push` — confirmed live 2026-08-17 that a fresh clone of the exact same repo resurrected a value
+  already forgotten elsewhere, with zero deny-list protection, because git history (what a fresh `sync`
+  re-derives from) is fully portable while the deny-list that would have blocked it was not. `--export`
+  writes the active entries to a plaintext JSON file (loudly warned as exactly as sensitive as the
+  values it holds — never meant for git, moved through whatever secure channel the user already
+  trusts); `--import` re-applies each new entry through `forget` itself, so an imported value is
+  deleted from the new checkout's nodes too, not just blocked going forward. Same dry-run-by-default /
+  `--yes` convention as the rest of `forget`. See `docs/forget-mechanism.md`.
+
 ## [0.5.0] — 2026-08-17
 
 ### Added

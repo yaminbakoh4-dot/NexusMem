@@ -68,3 +68,38 @@ Stated plainly, not left for someone else to find:
 The other four items the review praised without qualification — the shell hook's exit-code capture,
 the ranking-exponent budget in `rank.ts`, the two-profile redaction split, and the external-content FTS5
 index — are unrelated to this change and unaffected by it.
+
+## The clone/restore gap (found 2026-08-17, closed the same day)
+
+A follow-up comment asked the sharper version of the review's own question: does the deny-list itself
+survive a restore, or does it live somewhere a backup clone would drop? Checked empirically rather than
+argued from the schema — the answer was **no**, and the reproduction was direct: commit a secret to a
+repo, `sync`, `forget` it (confirmed gone, one `deny_list` row), then `git clone` that same origin fresh
+to a second directory, `init`, `sync`. The secret came right back — two hits, zero `deny_list` rows.
+
+The cause is the same shape as the original bug, one layer out. `deny_list`/`tombstones`/`mutation_audit`
+all live inside `<repoRoot>/.nexusmem/memory.db`, and `.gitignore` excludes `.nexusmem/` — "machine-local
+by design," per its own comment — so none of it ever travels with `git clone`/`git push`. Meanwhile the
+two things a fresh `sync` re-derives from both travel or persist *independently* of that one checkout:
+git history is fully portable and copied by every clone, and the shell-hook log
+(`~/.nexusmem/shell-history.jsonl`) is user-home-scoped, shared across every repo on the machine. This is
+worse than the already-documented "per-repository, not global" limit above, which is about a value
+leaking into *several different* repos. This gap is *per-checkout*: a teammate's first clone, a fresh
+laptop, a CI checkout, or a restored backup of the exact same repo has zero protection, because forgetting
+never left the one SQLite file it was written into. `tests/forget.test.ts`'s resurrection test only
+proved resilience across `sync --rebuild` *within* one `memory.db` — a second checkout was never tested.
+
+**The fix is `forget --export <path>` / `forget --import <path>`, not an automatic sync.** Automatic
+was ruled out on purpose: the only way to make a deny-list travel with `git clone` the way nodes do
+would be committing it into the repo, which means committing the forgotten value itself into git
+history — permanently, for every clone, which is a strictly worse leak than the one `forget` exists to
+close. `--export` writes the active entries (pattern, matchType, ignoreCase, reason — no repo or node
+IDs, so the file is portable across every checkout of the project) to a JSON file, and prints a loud
+warning that the file is exactly as sensitive as the value it holds and must never be committed or
+shared publicly; moving it to the new checkout is the user's job, through whatever secure channel they
+already trust (password manager, encrypted note — not git). `--import` re-applies each entry that isn't
+already active, and reuses `forget` itself for every new one — so an imported value is deleted from the
+new checkout's nodes too, not just blocked going forward. Both respect the same dry-run-by-default /
+`--yes` convention as everything else here. `tests/forget.test.ts` proves the exact scenario above: a
+second real `git clone` of the same origin resurrects the secret, then `--export`/`--import` removes it
+and restores the `deny_list` row.

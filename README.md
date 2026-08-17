@@ -322,6 +322,15 @@ optimizing, and it is somebody else's process.
   ran against (plus that repo's stale prior identities, same scope `--prune-source` already uses). A
   value that leaked into shell history from several repositories needs `forget` run once per repo —
   there is no shared, machine-wide deny-list across every project you have synced.
+- **A deny-list doesn't survive a clone or restore on its own.** `.nexusmem/` is gitignored by design,
+  so `deny_list` never travels with `git clone`/`git push` — while git history itself, the thing a
+  fresh `sync` re-derives from, is fully portable and copied by every clone. A teammate's fresh
+  checkout, a new machine, or a restored backup starts with zero protection: the forgotten value comes
+  right back on the first sync. Confirmed live 2026-08-17, not just a theoretical read of the code.
+  `forget --export <path>` / `forget --import <path>` close this: export writes the active entries to
+  a plaintext JSON file you move through a channel you control (never git — the file is exactly as
+  sensitive as the value it holds), and import re-applies them in the new checkout, deleting any
+  copies that already synced back in. It is deliberately manual, not automatic on every `sync`.
 
 ## Commands
 
@@ -344,8 +353,9 @@ is the finer-grained complement — it deletes every node matching one exact str
 pattern) *and* writes a standing deny-list entry so the value can never be re-ingested, even by a
 later `sync --rebuild` re-reading the append-only shell-hook log or a full transcript scan. Every
 removal leaves a hash-only tombstone, never the forgotten content itself. Both are dry-run by
-default; `--yes` confirms. See [`docs/forget-mechanism.md`](docs/forget-mechanism.md) for why this
-exists.
+default; `--yes` confirms. `forget --list` shows active entries; `forget --export <path>` /
+`forget --import <path>` carry them to another checkout of the same repo (see the limitation above).
+See [`docs/forget-mechanism.md`](docs/forget-mechanism.md) for why this exists.
 
 ## Recall across projects
 
