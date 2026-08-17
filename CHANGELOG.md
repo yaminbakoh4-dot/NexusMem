@@ -9,6 +9,8 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
 
 ## [Unreleased]
 
+## [0.5.1] — 2026-08-17
+
 ### Added
 
 - **`nexusmem forget --export <path>` / `forget --import <path>`: carry a deny-list across a clone or
@@ -350,7 +352,8 @@ First public release.
   there is no local-model summarization pass, and the conversation collector has never been audited
   for the stale-node bug that was found and fixed in the docs collector.
 
-[Unreleased]: https://github.com/yaminbkk/NexusMem/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/yaminbkk/NexusMem/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/yaminbkk/NexusMem/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/yaminbkk/NexusMem/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/yaminbkk/NexusMem/compare/v0.3.3...v0.4.0
 [0.3.3]: https://github.com/yaminbkk/NexusMem/compare/v0.3.2...v0.3.3
