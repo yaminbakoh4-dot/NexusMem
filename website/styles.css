@@ -650,6 +650,115 @@ section {
   50%, 100% { opacity: 0; }
 }
 
+/* ---------- interactive terminal (live-proof) ---------- */
+
+.ps-terminal {
+  max-width: 720px;
+}
+
+.ps-output {
+  max-height: 340px;
+  overflow-y: auto;
+  padding: 16px 22px 4px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.75;
+  color: #cfd3d8;
+}
+
+.ps-line {
+  margin-bottom: 10px;
+  overflow-wrap: anywhere;
+}
+
+.ps-line .prompt {
+  color: var(--accent);
+}
+
+.ps-line code {
+  font-family: var(--font-mono);
+  color: var(--text);
+}
+
+.ps-meta {
+  color: var(--text-dim);
+}
+
+.ps-savings {
+  margin-top: 2px;
+  color: #cfd3d8;
+}
+
+.ps-savings .save {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.ps-thinking {
+  animation: thinking-pulse 0.9s ease-in-out infinite;
+}
+
+@keyframes thinking-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+
+.ps-inputline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 22px 16px;
+  border-top: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.ps-inputline .prompt {
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.ps-input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.ps-input::placeholder {
+  color: var(--text-faint);
+}
+
+.ps-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  max-width: 720px;
+  margin: 18px auto 0;
+}
+
+.ps-chip {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  padding: 6px 11px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.ps-chip:hover {
+  border-color: var(--border-hover);
+  color: var(--text);
+}
+
 /* ---------- feature grid ---------- */
 
 .grid {

@@ -46,6 +46,7 @@
     </button>
     <div class="nav-links" id="navLinks">
       <a href="#features">Features</a>
+      <a href="#live-proof">Try it live</a>
       <a href="#quickstart">Quickstart</a>
       <a href="#breaks">Where it breaks</a>
       <a class="nav-gh" href="https://github.com/yaminbkk/NexusMem" target="_blank" rel="noopener">
@@ -250,6 +251,38 @@ npx nexusmem sync</pre>
   </div>
 </section>
 
+<section id="live-proof" aria-labelledby="live-proof-head">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <div class="kicker">Verify it yourself</div>
+      <h2 id="live-proof-head">Pick a real query, see the real numbers</h2>
+      <p>Every result below is replayed output from an actual <code>nexusmem sync</code> + <code>query</code> run against
+        <a href="https://github.com/vitejs/vite" target="_blank" rel="noopener">vitejs/vite</a> — the same 16 prompts behind
+        the 99% figure above. Nothing runs live on this page; type or click one to see the recorded numbers, or type
+        <code>list</code> to see every prompt.</p>
+    </div>
+    <div class="terminal ps-terminal reveal">
+      <div class="code-head">
+        <div class="dots" aria-hidden="true"><span></span><span></span><span></span></div>
+        <span>PS C:\dev\vite</span>
+      </div>
+      <div class="ps-output" id="psOutput" role="log" aria-live="polite" aria-label="Terminal output"></div>
+      <div class="ps-inputline">
+        <span class="prompt">PS C:\dev\vite&gt;</span>
+        <input type="text" id="psInput" class="ps-input" autocomplete="off" autocapitalize="off" spellcheck="false"
+          placeholder="type help, list, stats, or a query…" aria-label="Terminal command input" />
+      </div>
+    </div>
+    <div class="ps-chips reveal" id="psChips" aria-label="Sample recorded queries"></div>
+    <p class="caveat">
+      Replayed, not live-executed — this static site has no backend to run a real query against. The full recorded
+      set is <a href="https://github.com/yaminbkk/NexusMem/blob/master/bench/results/vite-final.json" target="_blank" rel="noopener"><code>bench/results/vite-final.json</code></a>,
+      produced by the same <a href="https://github.com/yaminbkk/NexusMem/blob/master/scripts/benchmark.ts" target="_blank" rel="noopener"><code>scripts/benchmark.ts</code></a> linked above. To run it for real, against your own repo:
+      <code>npx nexusmem init &amp;&amp; npx nexusmem sync &amp;&amp; npx nexusmem query "…"</code>.
+    </p>
+  </div>
+</section>
+
 <section class="honesty" id="breaks" aria-labelledby="breaks-head">
   <div class="wrap">
     <div class="section-head reveal">
@@ -354,6 +387,7 @@ npx nexusmem query "why did the retry fail"</pre>
 
 <div class="visually-hidden" role="status" aria-live="polite" id="copyStatus"></div>
 
+<script src="live-demo.js"></script>
 <script src="script.js"></script>
 </body>
 </html>
