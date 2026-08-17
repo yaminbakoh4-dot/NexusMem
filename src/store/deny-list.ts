@@ -119,6 +119,16 @@ export function insertDenyListEntry(db: Database, input: DenyListInput & { proje
   };
 }
 
+/** Whether an equivalent entry (same matchType + pattern + ignoreCase) is already active for this project -- keeps `importDenyList` idempotent across repeated runs of the same export file. */
+export function denyListEntryExists(db: Database, projectId: string, input: DenyListInput): boolean {
+  const row = db
+    .prepare(
+      `SELECT 1 FROM deny_list WHERE project_id = ? AND match_type = ? AND pattern = ? AND ignore_case = ? LIMIT 1`,
+    )
+    .get(projectId, input.matchType, input.pattern, input.ignoreCase ? 1 : 0);
+  return row !== undefined;
+}
+
 /** `title`, `body` and `meta` concatenated, matching against everything a query could surface for this node. */
 function matchableText(node: { title: string; body: string; meta: unknown }): string {
   return `${node.title}\n${node.body}\n${JSON.stringify(node.meta ?? {})}`;

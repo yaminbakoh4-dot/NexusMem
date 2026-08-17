@@ -6,12 +6,14 @@ import type { MemoryNode, NodeKind } from '../core/types.js';
 import type { FileEdge } from '../structure/types.js';
 import { sha256Hex } from '../core/ids.js';
 import {
+  denyListEntryExists,
   firstMatchingEntry,
   insertDenyListEntry,
   listDenyListEntries,
   validatePattern,
   type DenyListEntry,
   type DenyListInput,
+  type DenyMatchType,
 } from './deny-list.js';
 import { toMatchQuery } from './fts.js';
 import { migrate } from './schema.js';
@@ -117,6 +119,23 @@ export interface ForgetResult {
   removed: number;
   entryId: number;
   auditId: number;
+}
+
+/** One entry from an `importDenyList` source, before it's checked against what's already active. */
+export interface ImportPreviewItem {
+  matchType: DenyMatchType;
+  pattern: string;
+  alreadyPresent: boolean;
+  /** Nodes this entry would remove right now. Always 0 for an already-present entry -- forget already ran that sweep. */
+  wouldRemove: number;
+}
+
+export interface ImportDenyListResult {
+  /** Newly written deny-list entries -- each one also ran forget's full delete sweep. */
+  imported: number;
+  /** Entries whose matchType+pattern+ignoreCase was already active; left untouched. */
+  skipped: number;
+  removedNodes: number;
 }
 
 interface ScannableNodeRow {
@@ -601,6 +620,69 @@ export class MemoryStore {
   /** Active deny-list entries for one project, oldest first. */
   listDenyList(projectId: string): DenyListEntry[] {
     return listDenyListEntries(this.db, projectId);
+  }
+
+  /**
+   * What `importDenyList` with these same entries would do, without writing
+   * anything -- `forget --import`'s dry-run default, same convention as
+   * `previewForget`.
+   */
+  previewImportDenyList(
+    projectId: string,
+    otherProjectIds: readonly string[],
+    entries: readonly DenyListInput[],
+  ): ImportPreviewItem[] {
+    return entries.map((input) => {
+      validatePattern(input);
+      if (denyListEntryExists(this.db, projectId, input)) {
+        return { matchType: input.matchType, pattern: input.pattern, alreadyPresent: true, wouldRemove: 0 };
+      }
+      const preview = this.previewForget(projectId, otherProjectIds, input);
+      return {
+        matchType: input.matchType,
+        pattern: input.pattern,
+        alreadyPresent: false,
+        wouldRemove: preview.reduce((sum, p) => sum + p.count, 0),
+      };
+    });
+  }
+
+  /**
+   * Re-apply a previously-exported deny-list against this project.
+   *
+   * This is the fix for `forget`'s per-checkout gap: `deny_list` lives in
+   * `.nexusmem/memory.db`, which is gitignored and never travels with `git
+   * clone`/`git push`, while the things a fresh `sync` re-derives from --
+   * git history and the user-home shell-hook log -- both travel or persist
+   * independently of any one checkout. A fresh clone or a restored backup
+   * starts with an empty deny_list and no memory of what was forgotten. See
+   * docs/forget-mechanism.md.
+   *
+   * Entries already active (same matchType+pattern+ignoreCase) are left
+   * untouched. Every new one goes through `forget` itself, so an imported
+   * value is deleted from this checkout's nodes too, not just blocked going
+   * forward -- exactly what running `nexusmem forget <value>` fresh in this
+   * checkout would have done.
+   */
+  importDenyList(
+    projectId: string,
+    otherProjectIds: readonly string[],
+    entries: readonly DenyListInput[],
+  ): ImportDenyListResult {
+    let imported = 0;
+    let skipped = 0;
+    let removedNodes = 0;
+    for (const input of entries) {
+      validatePattern(input);
+      if (denyListEntryExists(this.db, projectId, input)) {
+        skipped += 1;
+        continue;
+      }
+      const result = this.forget(projectId, otherProjectIds, input);
+      imported += 1;
+      removedNodes += result.removed;
+    }
+    return { imported, skipped, removedNodes };
   }
 
   /**

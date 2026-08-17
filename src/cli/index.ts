@@ -212,6 +212,8 @@ program
   .option('--ignore-case', 'case-insensitive match', false)
   .option('--reason <text>', 'free-text note stored with the deny-list entry')
   .option('--list', 'list active deny-list entries instead of forgetting a new value', false)
+  .option('--export <path>', 'write this project\'s deny-list to a JSON file, for --import in another checkout')
+  .option('--import <path>', 're-apply a deny-list JSON file (from --export) against this project')
   .option('--yes', 'confirm the irreversible delete + deny-list write', false)
   .action((value: string | undefined, options) =>
     guard(() =>
@@ -222,6 +224,8 @@ program
         ignoreCase: options.ignoreCase,
         reason: options.reason,
         list: options.list,
+        export: options.export,
+        import: options.import,
         yes: options.yes,
       }),
     )(),

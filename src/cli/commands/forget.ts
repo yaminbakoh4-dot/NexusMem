@@ -1,4 +1,6 @@
+import { readFile, writeFile } from 'node:fs/promises';
 import pc from 'picocolors';
+import { z } from 'zod';
 import type { DenyListInput } from '../../store/deny-list.js';
 import { DenyListError } from '../../store/deny-list.js';
 import { MemoryStore } from '../../store/store.js';
@@ -6,7 +8,7 @@ import { loadContext } from '../context.js';
 
 export interface ForgetOptions {
   cwd: string;
-  /** Text to forget. Required unless `list` is set. */
+  /** Text to forget. Required unless `list`/`export`/`import` is set. */
   value?: string;
   /** Treat `value` as a regular expression instead of a literal substring. */
   regex?: boolean;
@@ -14,10 +16,34 @@ export interface ForgetOptions {
   reason?: string;
   /** List active deny-list entries for this project instead of forgetting a new value. */
   list?: boolean;
+  /** Write this project's deny-list to a JSON file at this path, for `--import` in another checkout. */
+  export?: string;
+  /** Re-apply a deny-list JSON file (from `--export`) against this project. */
+  import?: string;
   /** Confirm the irreversible delete + deny-list write. Without it, only a dry-run count is printed. */
   yes?: boolean;
   out?: (chunk: string) => void;
 }
+
+/**
+ * Shape written by `--export` / read by `--import`.
+ *
+ * Deliberately just `DenyListInput` fields, nothing repo- or id-specific: the
+ * whole point is that this file is portable across every checkout of the
+ * same project, which is exactly what `deny_list` itself is not (it lives in
+ * `.nexusmem/memory.db`, gitignored, never travels with `git clone`).
+ */
+const ExportPayloadSchema = z.object({
+  version: z.literal(1),
+  entries: z.array(
+    z.object({
+      matchType: z.enum(['literal', 'regex']),
+      pattern: z.string(),
+      ignoreCase: z.boolean(),
+      reason: z.string().nullable(),
+    }),
+  ),
+});
 
 /**
  * `nexusmem forget <value>` -- the value-keyed complement to `sync
@@ -57,8 +83,82 @@ export async function runForget(opts: ForgetOptions): Promise<number> {
       return 0;
     }
 
+    if (opts.export) {
+      const entries = store.listDenyList(projectId);
+      const payload = {
+        version: 1 as const,
+        entries: entries.map((e) => ({ matchType: e.matchType, pattern: e.pattern, ignoreCase: e.ignoreCase, reason: e.reason })),
+      };
+      await writeFile(opts.export, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+      out(
+        [
+          `${pc.green('exported')} ${entries.length} deny-list entrie(s) to ${opts.export}`,
+          pc.yellow(
+            'this file contains the raw forgotten value(s) in plaintext -- store it somewhere secure ' +
+              '(password manager, encrypted note) and never commit it to git or share it publicly.',
+          ),
+          '',
+        ].join('\n'),
+      );
+      return 0;
+    }
+
+    if (opts.import) {
+      let raw: string;
+      try {
+        raw = await readFile(opts.import, 'utf8');
+      } catch (err) {
+        throw new DenyListError(`could not read ${opts.import}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw);
+      } catch (err) {
+        throw new DenyListError(`${opts.import} is not valid JSON: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      const validated = ExportPayloadSchema.safeParse(parsed);
+      if (!validated.success) {
+        throw new DenyListError(
+          `${opts.import} is not a valid deny-list export: ${validated.error.issues.map((i) => i.message).join('; ')}`,
+        );
+      }
+      const entries: DenyListInput[] = validated.data.entries;
+      const otherProjectIds = store.listOtherProjectIds(projectId);
+
+      if (!opts.yes) {
+        const preview = store.previewImportDenyList(projectId, otherProjectIds, entries);
+        const toImport = preview.filter((p) => !p.alreadyPresent);
+        const totalRemove = toImport.reduce((sum, p) => sum + p.wouldRemove, 0);
+
+        if (toImport.length === 0) {
+          out(`${pc.dim('forget --import')} all ${preview.length} entrie(s) in ${opts.import} are already active -- nothing to do\n`);
+          return 0;
+        }
+        const describe = (p: (typeof toImport)[number]) =>
+          `  ${p.matchType === 'regex' ? pc.dim('/') + p.pattern + pc.dim('/') : JSON.stringify(p.pattern)}: ${p.wouldRemove} node(s)`;
+        out(
+          [
+            `${pc.yellow('would import')} ${toImport.length} new deny-list entrie(s)` +
+              `${preview.length > toImport.length ? ` (${preview.length - toImport.length} already active)` : ''}, ` +
+              `removing ${totalRemove} node(s):`,
+            ...toImport.map(describe),
+            pc.dim('re-run with --yes to permanently deny-list these value(s) and delete matching node(s) -- this cannot be undone'),
+            '',
+          ].join('\n'),
+        );
+        return 0;
+      }
+
+      const result = store.importDenyList(projectId, otherProjectIds, entries);
+      out(
+        `${pc.green('imported')} ${result.imported} deny-list entrie(s)${result.skipped > 0 ? ` (${result.skipped} already active)` : ''}, ` +
+          `${result.removedNodes} node(s) deleted\n`,
+      );
+      return 0;
+    }
+
     if (!opts.value) {
-      throw new DenyListError('a value is required (or pass --list to see active deny-list entries)');
+      throw new DenyListError('a value is required (or pass --list/--export/--import)');
     }
 
     const input: DenyListInput = {
