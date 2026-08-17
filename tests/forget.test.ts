@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -235,6 +236,98 @@ describe('nexusmem forget', () => {
         expect(auditCount).toBe(1);
       } finally {
         store.close();
+      }
+    },
+  );
+
+  it(
+    'the clone/restore gap: a value forgotten in one checkout is unprotected in a fresh clone of the same ' +
+      'origin, closed by --export/--import',
+    async () => {
+      const secret = 'sk-secret-clone-export-test';
+      const work = mkdtempSync(join(tmpdir(), 'nexusmem-clonegap-'));
+      const origin = join(work, 'origin.git');
+      const cloneA = join(work, 'clone-a');
+      const cloneB = join(work, 'clone-b');
+      const exportFile = join(work, 'deny-list.json');
+
+      try {
+        const g = (cwd: string, args: string[]) => gitFixture(cwd, args, { env: GIT_ENV });
+
+        // A bare "remote" both clones share -- what a git host (or a backup
+        // clone made from one) looks like. `git init --bare` alone leaves
+        // HEAD pointing at whatever `init.defaultBranch` happens to be on
+        // this machine, which may not be the branch either clone pushes --
+        // pin it explicitly so `clone` always finds real history.
+        execFileSync('git', ['init', '--bare', '-q', origin], { stdio: 'pipe' });
+        execFileSync('git', ['symbolic-ref', 'HEAD', 'refs/heads/main'], { cwd: origin, env: GIT_ENV, stdio: 'pipe' });
+
+        execFileSync('git', ['clone', '-q', origin, cloneA], { stdio: 'pipe' });
+        g(cloneA, ['checkout', '-q', '-b', 'main']);
+        writeFileSync(join(cloneA, 'config.js'), `const KEY = "${secret}";\n`);
+        g(cloneA, ['add', '.']);
+        g(cloneA, ['commit', '-q', '-m', `oops: leaked ${secret}`]);
+        g(cloneA, ['push', '-q', 'origin', 'main']);
+
+        await runInit({ cwd: cloneA, force: false, hook: false, enableConversation: false, out: () => {} });
+        const wsA = resolveWorkspace(cloneA);
+        const cfgA = await readConfig(wsA);
+        await writeConfig(wsA, { ...cfgA, sources: { ...cfgA.sources, shell: { ...cfgA.sources.shell, enabled: false } } });
+        await runSync({ cwd: cloneA, full: false, rebuild: false, quiet: true, noEmbed: true });
+
+        const repoA = await readRepoInfo(cloneA);
+        const cloneProjectId = makeProjectId({ root: cloneA, originUrl: repoA.originUrl });
+
+        const storeA1 = MemoryStore.open(wsA.dbPath);
+        expect(storeA1.search(cloneProjectId, secret, 10).length).toBeGreaterThan(0);
+        storeA1.close();
+
+        expect(await runForget({ cwd: cloneA, value: secret, yes: true, out: () => {} })).toBe(0);
+
+        const storeA2 = MemoryStore.open(wsA.dbPath);
+        expect(storeA2.search(cloneProjectId, secret, 10)).toEqual([]);
+        storeA2.close();
+
+        // Fresh clone of the SAME origin -- what a "backup clone", a
+        // restored checkout, or a new teammate's first `git clone` looks
+        // like. `.nexusmem/` never traveled (it's gitignored), so this
+        // checkout has no memory of anything ever being forgotten.
+        execFileSync('git', ['clone', '-q', origin, cloneB], { stdio: 'pipe' });
+        await runInit({ cwd: cloneB, force: false, hook: false, enableConversation: false, out: () => {} });
+        const wsB = resolveWorkspace(cloneB);
+        const cfgB = await readConfig(wsB);
+        await writeConfig(wsB, { ...cfgB, sources: { ...cfgB.sources, shell: { ...cfgB.sources.shell, enabled: false } } });
+        await runSync({ cwd: cloneB, full: false, rebuild: false, quiet: true, noEmbed: true });
+
+        const repoB = await readRepoInfo(cloneB);
+        const projectIdB = makeProjectId({ root: cloneB, originUrl: repoB.originUrl });
+        expect(projectIdB).toBe(cloneProjectId); // same origin URL -> same id: this really is "the same project"
+
+        const storeB1 = MemoryStore.open(wsB.dbPath);
+        // The gap: the secret is back, with a deny_list that has never seen it.
+        expect(storeB1.search(projectIdB, secret, 10).length).toBeGreaterThan(0);
+        const denyBeforeImport = (
+          storeB1.raw.prepare('SELECT COUNT(*) AS c FROM deny_list WHERE project_id = ?').get(projectIdB) as { c: number }
+        ).c;
+        expect(denyBeforeImport).toBe(0);
+        storeB1.close();
+
+        // The fix: export clone A's deny-list, import it into clone B.
+        expect(await runForget({ cwd: cloneA, export: exportFile, out: () => {} })).toBe(0);
+        expect(await runForget({ cwd: cloneB, import: exportFile, yes: true, out: () => {} })).toBe(0);
+
+        const storeB2 = MemoryStore.open(wsB.dbPath);
+        try {
+          expect(storeB2.search(projectIdB, secret, 10)).toEqual([]);
+          const denyAfterImport = (
+            storeB2.raw.prepare('SELECT COUNT(*) AS c FROM deny_list WHERE project_id = ?').get(projectIdB) as { c: number }
+          ).c;
+          expect(denyAfterImport).toBe(1);
+        } finally {
+          storeB2.close();
+        }
+      } finally {
+        rmSync(work, { recursive: true, force: true });
       }
     },
   );
