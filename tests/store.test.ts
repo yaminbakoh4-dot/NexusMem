@@ -462,6 +462,26 @@ describe('MemoryStore.forget / previewForget', () => {
     expect(store.stats(PROJECT).total).toBe(0);
   });
 
+  it('deny-list survives clearProject, so a forgotten value stays denied through a sync --rebuild-style drop and re-ingest', () => {
+    const secret = 'sk-secret-rebuild-1';
+    const doomed = node({ id: 'a', body: `leaked: ${secret}` });
+    const control = node({ id: 'control', body: 'unrelated commit' });
+    store.upsertNodes([doomed, control]);
+
+    store.forget(PROJECT, [], { matchType: 'literal', pattern: secret, ignoreCase: false, reason: null });
+    expect(store.stats(PROJECT).total).toBe(1);
+
+    const removed = store.clearProject(PROJECT); // what `sync --rebuild` does before re-ingesting
+    expect(removed).toBe(1);
+
+    const denyRows = store.raw.prepare('SELECT COUNT(*) AS c FROM deny_list WHERE project_id = ?').get(PROJECT) as { c: number };
+    expect(denyRows.c).toBe(1);
+
+    const stats = store.upsertNodes([doomed, control]); // simulates --rebuild's re-ingest from the same source
+    expect(stats).toEqual({ inserted: 1, updated: 0, unchanged: 0, denied: 1 });
+    expect(store.listRecentNodes(PROJECT).map((n) => n.id)).toEqual(['control']);
+  });
+
   it('sweeps otherProjectIds, mirroring pruneSourceNodes -- forgets a value under a stale prior project identity too', () => {
     const STALE = 'stale-prior-id';
     store.upsertNodes([node({ id: 'a', projectId: STALE, body: 'export API_KEY=sk-secret-stale' })]);
