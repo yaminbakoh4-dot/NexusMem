@@ -74,7 +74,6 @@ const VITE_BENCH = [
     html += `<div>full files &nbsp;${fmt(entry.baseFull)} tokens <span class="muted">(${pages(entry.baseFull)})</span> &rarr; <span class="save">${pct(entry.saveFull)} saved</span></div>`;
     html += `<div>git log dump ${fmt(entry.baseLog)} tokens <span class="muted">(${pages(entry.baseLog)})</span> &rarr; <span class="save">${pct(entry.saveLog)} saved</span></div>`;
     html += `</div>`;
-    html += `<div class="muted ps-plain">so instead of reading ${pages(entry.baseFull)} of full files, your agent reads ${pages(entry.tokens)}.</div>`;
     block.innerHTML = html;
     output.appendChild(block);
     scrollToEnd();
@@ -107,7 +106,6 @@ const VITE_BENCH = [
     html += `<div>full files &nbsp;&nbsp;&nbsp;&nbsp;${fmt(sumFull)} tokens <span class="muted">(${pages(sumFull)})</span> &rarr; <span class="save">${pct(1 - sumTokens / sumFull)} saved</span> (avg per-query ${pct(avgFull)})</div>`;
     html += `<div>git log dump ${fmt(sumLog)} tokens <span class="muted">(${pages(sumLog)})</span> &rarr; <span class="save">${pct(1 - sumTokens / sumLog)} saved</span> (avg per-query ${pct(avgLog)})</div>`;
     html += `</div>`;
-    html += `<div class="muted ps-plain">so instead of reading ${pages(sumFull)} of full files across all 16, your agent reads ${pages(sumTokens)}.</div>`;
     printLine(html);
   }
 

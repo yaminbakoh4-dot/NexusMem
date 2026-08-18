@@ -694,11 +694,6 @@ section {
   font-weight: 600;
 }
 
-.ps-plain {
-  margin-top: 4px;
-  font-style: italic;
-}
-
 .ps-thinking {
   animation: thinking-pulse 0.9s ease-in-out infinite;
 }
