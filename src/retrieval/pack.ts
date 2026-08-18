@@ -1,4 +1,5 @@
 import { approxTokens, truncate } from '../core/text.js';
+import type { Provenance } from '../core/types.js';
 import type { RankedHit } from './rank.js';
 
 export interface PackedNode {
@@ -10,6 +11,7 @@ export interface PackedNode {
   score: number;
   summary: string;
   tokens: number;
+  provenance: Provenance;
   /** Set only for a cross-project query, where a line's repository is not implied by context. */
   project?: string;
 }
@@ -240,6 +242,7 @@ export function packContext(
       score: hit.score,
       summary,
       tokens,
+      provenance: hit.provenance,
       ...(hit.project ? { project: hit.project } : {}),
     });
     tokensUsed += tokens;
@@ -261,7 +264,8 @@ export function renderContextBlock(query: string, result: PackResult): string {
     // it the reader cannot tell which repository a line describes, and two
     // repositories' conventions read as one contradictory history.
     const project = node.project ? `[${node.project}] ` : '';
-    lines.push(`- ${node.ts.slice(0, 10)} ${project}${node.title}`);
+    const provenance = `[${node.provenance}] `; // fact vs. inference, one glance
+    lines.push(`- ${node.ts.slice(0, 10)} ${provenance}${project}${node.title}`);
     if (node.summary && node.summary !== node.title) {
       // A patch is the one body whose line structure *is* the content:
       // flattened onto one line, `-  return a;` and `+  return b;` become an

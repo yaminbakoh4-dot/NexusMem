@@ -67,6 +67,29 @@ describe('rankHits', () => {
   });
 });
 
+describe('rankHits — supersededIds down-weight (mark-stale)', () => {
+  it('ranks a superseded node below the node that supersedes it, all else equal', () => {
+    const ranked = rankHits([hit({ id: 'old-conclusion', rank: -3 }), hit({ id: 'new-conclusion', rank: -3 })], {
+      now: NOW,
+      supersededIds: new Set(['old-conclusion']),
+    });
+    expect(ranked[0]!.id).toBe('new-conclusion');
+    expect(ranked[0]!.score).toBeGreaterThan(ranked[1]!.score);
+  });
+
+  it('never removes a superseded node from the results -- it stays queryable, just deprioritized', () => {
+    const ranked = rankHits([hit({ id: 'stale', rank: -3 })], { now: NOW, supersededIds: new Set(['stale']) });
+    expect(ranked).toHaveLength(1);
+    expect(ranked[0]!.score).toBeGreaterThan(0);
+  });
+
+  it('leaves scores untouched when supersededIds is omitted or empty', () => {
+    const withoutOpt = rankHits([hit({ id: 'a', rank: -3 })], { now: NOW });
+    const withEmptySet = rankHits([hit({ id: 'a', rank: -3 })], { now: NOW, supersededIds: new Set() });
+    expect(withEmptySet[0]!.score).toBe(withoutOpt[0]!.score);
+  });
+});
+
 /**
  * The priors (signal, recency) are bounded relative to relevance: *together*,
  * across their whole range, they may overturn at most a 2x relevance gap, and
@@ -295,6 +318,14 @@ describe('renderContextBlock', () => {
     expect(block).toContain('2026-08-01');
     expect(block).toContain('fix: thing');
     expect(block).toContain('detail line');
+  });
+
+  it('tags an observed node and an inferred node differently, so fact and inference are distinguishable at a glance', () => {
+    const observed = ranked({ id: 'a', title: 'observed one', provenance: 'observed' });
+    const inferred = ranked({ id: 'b', title: 'inferred one', provenance: 'inferred' });
+    const block = renderContextBlock('q', packContext([observed, inferred], 2000));
+    expect(block).toContain('[observed]');
+    expect(block).toContain('[inferred]');
   });
 });
 

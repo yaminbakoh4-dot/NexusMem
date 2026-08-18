@@ -29,6 +29,8 @@ export interface RankOptions {
    * changes what counts as relevant, not the rest of the ranking formula.
    */
   relevanceScores?: ReadonlyMap<string, number>;
+  /** Node ids some other node's `supersedes` points at (see `MemoryStore.getSupersededIds`) -- down-weighted, never removed. */
+  supersededIds?: ReadonlySet<string>;
 }
 
 /**
@@ -45,6 +47,9 @@ const SIGNAL_FLOOR = 0.2;
 const RECENCY_FLOOR = 0.3;
 const DEFAULT_HALF_LIFE_DAYS = 30;
 const MS_PER_DAY = 86_400_000;
+
+/** Flat down-weight for a superseded node -- not near-zero, since it must stay reachable if it's still the best match. */
+const SUPERSEDED_PENALTY = 0.5;
 
 /**
  * How far the *priors*, together, may overturn the *query*.
@@ -147,7 +152,8 @@ export function rankHits(hits: readonly SearchHit[], opts: RankOptions = {}): Ra
     const ageDays = ageDaysOf(hit.ts, now);
     const recencyFactor = RECENCY_FLOOR + (1 - RECENCY_FLOOR) * 2 ** (-ageDays / halfLife);
 
-    const score = relevance * signalWeight ** SIGNAL_EXPONENT * recencyFactor ** RECENCY_EXPONENT;
+    const rawScore = relevance * signalWeight ** SIGNAL_EXPONENT * recencyFactor ** RECENCY_EXPONENT;
+    const score = opts.supersededIds?.has(hit.id) ? rawScore * SUPERSEDED_PENALTY : rawScore;
 
     return { ...hit, relevance, signalWeight, ageDays, recencyFactor, score };
   });

@@ -67,6 +67,7 @@ function pullLinkedResolutions(
           title: resolution.title,
           body: resolution.body,
           signal: resolution.signal,
+          provenance: resolution.provenance,
           rank: 0, // no bm25/vector rank of its own -- never read again past this point
           relevance: hit.relevance,
           signalWeight: hit.signalWeight,
@@ -145,6 +146,8 @@ export async function runCrossProjectQuery(
   const perProject: CrossProjectQueryResult['perProject'] = [];
   let bm25Count = 0;
   let vectorCount = 0;
+  // Node ids are project-scoped, so merging every source's superseded-id set into one is safe.
+  const supersededIds = new Set<string>();
 
   for (const source of sources) {
     const label = (hit: SearchHit): SearchHit => ({ ...hit, project: source.label });
@@ -164,13 +167,14 @@ export async function runCrossProjectQuery(
     }
 
     hits.push(...mergeSearchAndVectorHits(bm25Hits, vectorHits).map(label));
+    for (const id of source.store.getSupersededIds(source.projectId)) supersededIds.add(id);
   }
 
   const storeByLabel = new Map(sources.map((source) => [source.label, source.store]));
   const relevanceScores = reciprocalRankFusion(lists);
   const ranked = pullLinkedResolutions(
     (hit) => (hit.project ? storeByLabel.get(hit.project) : undefined),
-    rankHits(hits, { halfLifeDays: opts.halfLifeDays, relevanceScores }),
+    rankHits(hits, { halfLifeDays: opts.halfLifeDays, relevanceScores, supersededIds }),
   );
   const packed = packContext(ranked, opts.budget, { query });
 
@@ -199,10 +203,11 @@ export async function runHybridQuery(
 
   const hits = vectorHits.length > 0 ? mergeSearchAndVectorHits(bm25Hits, vectorHits) : bm25Hits;
   const relevanceScores = vectorHits.length > 0 ? reciprocalRankFusion([bm25Hits, vectorHits]) : undefined;
+  const supersededIds = store.getSupersededIds(projectId);
 
   const ranked = pullLinkedResolutions(
     () => store,
-    rankHits(hits, { halfLifeDays: opts.halfLifeDays, relevanceScores }),
+    rankHits(hits, { halfLifeDays: opts.halfLifeDays, relevanceScores, supersededIds }),
   );
   // The query reaches the packer as well as the searcher: for a diff node it
   // decides which hunk of an already-retrieved patch is worth the budget.
