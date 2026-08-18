@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import * as sqliteVec from 'sqlite-vec';
-import type { MemoryNode, NodeKind } from '../core/types.js';
+import { defaultProvenanceForKind, type MemoryNode, type NodeKind, type Provenance } from '../core/types.js';
 import type { FileEdge } from '../structure/types.js';
 import { sha256Hex } from '../core/ids.js';
 import {
@@ -27,6 +27,7 @@ export interface LinkedNode {
   title: string;
   body: string;
   signal: number;
+  provenance: Provenance;
 }
 
 export interface IngestStats {
@@ -58,6 +59,7 @@ export interface SearchHit {
   title: string;
   body: string;
   signal: number;
+  provenance: Provenance;
   /** bm25 score; lower is a better lexical match. */
   rank: number;
   /**
@@ -77,6 +79,7 @@ interface NodeRow {
   title: string;
   body: string;
   signal: number;
+  provenance: Provenance;
   rank: number;
 }
 
@@ -87,6 +90,7 @@ export interface VectorHit {
   title: string;
   body: string;
   signal: number;
+  provenance: Provenance;
   /** Euclidean distance from the query vector; lower is closer. */
   distance: number;
 }
@@ -99,6 +103,7 @@ export interface RecentNode {
   source: string;
   title: string;
   signal: number;
+  provenance: Provenance;
 }
 
 export interface EmbeddableNode {
@@ -243,12 +248,15 @@ export class MemoryStore {
     const dropStaleEmbedding = this.db.prepare(
       'DELETE FROM nodes_vec WHERE rowid = (SELECT rowid FROM nodes WHERE id = ?)',
     );
+    // `supersedes` is deliberately absent from the ON CONFLICT SET clause: it's
+    // set out-of-band by `nexusmem mark-stale` and a re-sync must not wipe it.
     const insertNode = this.db.prepare(
-      `INSERT INTO nodes (id, kind, project_id, ts, ts_epoch, source, title, body, signal, meta, created_at)
-       VALUES (@id, @kind, @projectId, @ts, @tsEpoch, @source, @title, @body, @signal, @meta, @now)
+      `INSERT INTO nodes (id, kind, project_id, ts, ts_epoch, source, title, body, signal, meta, provenance, supersedes, created_at)
+       VALUES (@id, @kind, @projectId, @ts, @tsEpoch, @source, @title, @body, @signal, @meta, @provenance, @supersedes, @now)
        ON CONFLICT(id) DO UPDATE SET
          ts = excluded.ts, ts_epoch = excluded.ts_epoch, source = excluded.source,
-         title = excluded.title, body = excluded.body, signal = excluded.signal, meta = excluded.meta`,
+         title = excluded.title, body = excluded.body, signal = excluded.signal, meta = excluded.meta,
+         provenance = excluded.provenance`,
     );
     const clearFiles = this.db.prepare('DELETE FROM node_files WHERE node_id = ?');
     const insertFile = this.db.prepare(
@@ -303,6 +311,8 @@ export class MemoryStore {
           body: node.body,
           signal: node.signal,
           meta: JSON.stringify(node.meta),
+          provenance: node.provenance ?? defaultProvenanceForKind(node.kind),
+          supersedes: node.supersedes ?? null,
           now,
         });
 
@@ -416,7 +426,7 @@ export class MemoryStore {
     if (ids.length === 0) return [];
     return this.db
       .prepare(
-        `SELECT id, kind, project_id AS projectId, ts, title, body, signal
+        `SELECT id, kind, project_id AS projectId, ts, title, body, signal, provenance
          FROM nodes WHERE id IN (SELECT value FROM json_each(?))`,
       )
       .all(JSON.stringify(ids)) as LinkedNode[];
@@ -431,7 +441,7 @@ export class MemoryStore {
   listRecentNodes(projectId: string, limit = 20): RecentNode[] {
     return this.db
       .prepare(
-        `SELECT id, kind, ts, source, title, signal
+        `SELECT id, kind, ts, source, title, signal, provenance
          FROM nodes
          WHERE project_id = ?
          ORDER BY ts_epoch DESC
@@ -793,7 +803,7 @@ export class MemoryStore {
     const overfetch = Math.max(limit * 8, 50);
     return this.db
       .prepare(
-        `SELECT n.id, n.kind, n.ts, n.title, n.body, n.signal, v.distance AS distance
+        `SELECT n.id, n.kind, n.ts, n.title, n.body, n.signal, n.provenance, v.distance AS distance
          FROM nodes_vec v
          JOIN nodes n ON n.rowid = v.rowid
          WHERE v.embedding MATCH ? AND k = ? AND n.project_id = ?
@@ -842,7 +852,7 @@ export class MemoryStore {
 
     const rows = this.db
       .prepare(
-        `SELECT n.id, n.kind, n.ts, n.title, n.body, n.signal,
+        `SELECT n.id, n.kind, n.ts, n.title, n.body, n.signal, n.provenance,
                 bm25(nodes_fts, 10.0, 1.0) AS rank
          FROM nodes_fts
          JOIN nodes n ON n.rowid = nodes_fts.rowid
@@ -853,6 +863,25 @@ export class MemoryStore {
       .all(match, projectId, limit) as NodeRow[];
 
     return rows;
+  }
+
+  /** The project a node belongs to, or null if no node has this id. Used by `mark-stale` to validate both ids. */
+  getNodeProjectId(id: string): string | null {
+    const row = this.db.prepare('SELECT project_id FROM nodes WHERE id = ?').get(id) as { project_id: string } | undefined;
+    return row?.project_id ?? null;
+  }
+
+  /** Every node id some other node's `supersedes` points at, for one project -- what the ranker should down-weight. */
+  getSupersededIds(projectId: string): Set<string> {
+    const rows = this.db
+      .prepare('SELECT DISTINCT supersedes AS id FROM nodes WHERE project_id = ? AND supersedes IS NOT NULL')
+      .all(projectId) as Array<{ id: string }>;
+    return new Set(rows.map((r) => r.id));
+  }
+
+  /** Record that `newNodeId` supersedes `staleNodeId` -- the write behind `nexusmem mark-stale`. Caller validates both ids first. */
+  setSupersedes(newNodeId: string, staleNodeId: string): void {
+    this.db.prepare('UPDATE nodes SET supersedes = ? WHERE id = ?').run(staleNodeId, newNodeId);
   }
 
   /** Escape hatch for tests and future modules. */

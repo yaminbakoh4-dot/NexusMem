@@ -53,7 +53,16 @@ export function mergeSearchAndVectorHits(bm25Hits: readonly SearchHit[], vectorH
 
   for (const hit of vectorHits) {
     if (byId.has(hit.id)) continue;
-    byId.set(hit.id, { id: hit.id, kind: hit.kind, ts: hit.ts, title: hit.title, body: hit.body, signal: hit.signal, rank: 0 });
+    byId.set(hit.id, {
+      id: hit.id,
+      kind: hit.kind,
+      ts: hit.ts,
+      title: hit.title,
+      body: hit.body,
+      signal: hit.signal,
+      provenance: hit.provenance,
+      rank: 0,
+    });
   }
 
   return [...byId.values()];

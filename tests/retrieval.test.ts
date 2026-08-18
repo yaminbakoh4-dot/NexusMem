@@ -17,6 +17,7 @@ function hit(overrides: Partial<SearchHit> & Pick<SearchHit, 'id'>): SearchHit {
     title: 'feat: something',
     body: 'feat: something\n\nmore detail',
     signal: 0.5,
+    provenance: 'observed',
     rank: -2,
     ...overrides,
   };

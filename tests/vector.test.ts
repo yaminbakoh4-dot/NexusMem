@@ -32,8 +32,26 @@ describe('reciprocalRankFusion', () => {
 });
 
 describe('mergeSearchAndVectorHits', () => {
-  const bm25Hit = { id: 'a', kind: 'git_commit' as const, ts: 't', title: 'A', body: 'body a', signal: 0.5, rank: -3 };
-  const vectorHit = { id: 'b', kind: 'shell_command' as const, ts: 't', title: 'B', body: 'body b', signal: 0.3, distance: 0.1 };
+  const bm25Hit = {
+    id: 'a',
+    kind: 'git_commit' as const,
+    ts: 't',
+    title: 'A',
+    body: 'body a',
+    signal: 0.5,
+    provenance: 'observed' as const,
+    rank: -3,
+  };
+  const vectorHit = {
+    id: 'b',
+    kind: 'shell_command' as const,
+    ts: 't',
+    title: 'B',
+    body: 'body b',
+    signal: 0.3,
+    provenance: 'observed' as const,
+    distance: 0.1,
+  };
 
   it('keeps the bm25 version when a node appears in both sets', () => {
     const dupVector = { ...vectorHit, id: 'a', title: 'should not win' };
@@ -57,6 +75,7 @@ describe('rankHits with relevanceScores override', () => {
     title: id,
     body: id,
     signal: 0.5,
+    provenance: 'observed' as const,
     rank: -1, // deliberately identical / meaningless -- relevanceScores should be what decides order
     ...overrides,
   });

@@ -122,6 +122,95 @@ describe('MemoryStore', () => {
   });
 });
 
+describe('MemoryStore provenance', () => {
+  let dir: string;
+  let store: MemoryStore;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'nexusmem-'));
+    store = MemoryStore.open(join(dir, 'memory.db'));
+  });
+
+  afterEach(() => {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('defaults an observed kind (git_commit) to "observed" when the node omits provenance', () => {
+    store.upsertNodes([node({ id: 'a', kind: 'git_commit' })]);
+    const row = store.raw.prepare('SELECT provenance FROM nodes WHERE id = ?').get('a') as { provenance: string };
+    expect(row.provenance).toBe('observed');
+  });
+
+  it('defaults an inferred kind (conversation_turn) to "inferred" when the node omits provenance', () => {
+    store.upsertNodes([node({ id: 'a', kind: 'conversation_turn' })]);
+    const row = store.raw.prepare('SELECT provenance FROM nodes WHERE id = ?').get('a') as { provenance: string };
+    expect(row.provenance).toBe('inferred');
+  });
+
+  it('respects an explicit provenance over the kind-based default', () => {
+    store.upsertNodes([node({ id: 'a', kind: 'doc_section', provenance: 'observed' })]);
+    const row = store.raw.prepare('SELECT provenance FROM nodes WHERE id = ?').get('a') as { provenance: string };
+    expect(row.provenance).toBe('observed'); // doc_section defaults to 'inferred'
+  });
+
+  it('surfaces provenance on search/vectorSearch/listRecentNodes/getNodesByIds results', () => {
+    store.upsertNodes([node({ id: 'a', kind: 'shell_command', title: 'npm test', body: 'npm test' })]);
+
+    expect(store.search(PROJECT, 'npm')[0]!.provenance).toBe('observed');
+    expect(store.listRecentNodes(PROJECT)[0]!.provenance).toBe('observed');
+    expect(store.getNodesByIds(['a'])[0]!.provenance).toBe('observed');
+  });
+});
+
+describe('MemoryStore supersedes (mark-stale)', () => {
+  let dir: string;
+  let store: MemoryStore;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'nexusmem-'));
+    store = MemoryStore.open(join(dir, 'memory.db'));
+  });
+
+  afterEach(() => {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('getNodeProjectId finds an existing node and returns null for a missing one', () => {
+    store.upsertNodes([node({ id: 'a' })]);
+    expect(store.getNodeProjectId('a')).toBe(PROJECT);
+    expect(store.getNodeProjectId('does-not-exist')).toBeNull();
+  });
+
+  it('setSupersedes links the new node to the stale one, and getSupersededIds reports the stale id', () => {
+    store.upsertNodes([node({ id: 'old' }), node({ id: 'new' })]);
+    expect(store.getSupersededIds(PROJECT).size).toBe(0);
+
+    store.setSupersedes('new', 'old');
+
+    expect(store.getSupersededIds(PROJECT)).toEqual(new Set(['old']));
+  });
+
+  it('is scoped to one project -- a link recorded in PROJECT does not leak into a query for another project', () => {
+    store.upsertNodes([node({ id: 'old' }), node({ id: 'new' })]);
+    store.setSupersedes('new', 'old');
+
+    expect(store.getSupersededIds(PROJECT)).toEqual(new Set(['old']));
+    expect(store.getSupersededIds('proj-b')).toEqual(new Set());
+  });
+
+  it('a re-sync of unchanged content never touches a manually-set supersedes link', () => {
+    const doomed = node({ id: 'old', body: 'unchanged content' });
+    store.upsertNodes([doomed, node({ id: 'new' })]);
+    store.setSupersedes('new', 'old');
+
+    store.upsertNodes([doomed]); // identical content -- hits the "unchanged" skip in upsertNodes
+
+    expect(store.getSupersededIds(PROJECT)).toEqual(new Set(['old']));
+  });
+});
+
 describe('MemoryStore.search', () => {
   let dir: string;
   let store: MemoryStore;
@@ -312,7 +401,15 @@ describe('MemoryStore.listRecentNodes', () => {
     store.upsertNodes([node({ id: 'a', kind: 'shell_command', source: 'shell:pwsh', title: 'npm whoami', signal: 0.42 })]);
 
     expect(store.listRecentNodes(PROJECT)).toEqual([
-      { id: 'a', kind: 'shell_command', ts: '2026-03-01T10:00:00+07:00', source: 'shell:pwsh', title: 'npm whoami', signal: 0.42 },
+      {
+        id: 'a',
+        kind: 'shell_command',
+        ts: '2026-03-01T10:00:00+07:00',
+        source: 'shell:pwsh',
+        title: 'npm whoami',
+        signal: 0.42,
+        provenance: 'observed', // defaultProvenanceForKind: no explicit provenance was set on this fixture node
+      },
     ]);
   });
 
