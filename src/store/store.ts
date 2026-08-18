@@ -54,6 +54,7 @@ import {
   type VectorHit,
 } from './embeddings.js';
 import { search, stats, type SearchHit, type StoreStats } from './search.js';
+import { getMeta, setMeta } from './meta.js';
 
 export type { ProjectRecord } from './projects.js';
 export type { IngestStats, LinkedNode, RecentNode } from './nodes.js';
@@ -271,14 +272,11 @@ export class MemoryStore {
   }
 
   getMeta(key: string): string | null {
-    const row = this.db.prepare('SELECT value FROM meta WHERE key = ?').get(key) as { value: string } | undefined;
-    return row?.value ?? null;
+    return getMeta(this.db, key);
   }
 
   setMeta(key: string, value: string): void {
-    this.db
-      .prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
-      .run(key, value);
+    setMeta(this.db, key, value);
   }
 
   vectorSearch(projectId: string, embedding: Float32Array, limit = 20): VectorHit[] {
