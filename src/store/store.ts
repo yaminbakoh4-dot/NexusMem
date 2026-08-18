@@ -42,6 +42,7 @@ import {
   type LinkedNode,
   type RecentNode,
 } from './nodes.js';
+import { getLinkedNodeIds, linkNodes } from './links.js';
 
 export type { ProjectRecord } from './projects.js';
 export type { IngestStats, LinkedNode, RecentNode } from './nodes.js';
@@ -235,30 +236,13 @@ export class MemoryStore {
     return clearProject(this.db, projectId);
   }
 
-  /**
-   * Record a directed relationship between two existing nodes -- e.g. a
-   * failed `shell_command` and whatever node later resolved it
-   * (`relation = 'resolved_by'`). A relation, not a new content node: the
-   * correlation *is* the relationship, and duplicating either side's content
-   * into a third node would just be another independently-ranked candidate.
-   *
-   * Idempotent by design (`INSERT OR IGNORE` against the table's own primary
-   * key) so re-running a correlation pass over already-linked nodes is a
-   * no-op, not a duplicate-row error.
-   */
   linkNodes(fromNodeId: string, toNodeId: string, relation: string): void {
-    this.db
-      .prepare('INSERT OR IGNORE INTO node_links (from_node_id, to_node_id, relation, created_at) VALUES (?, ?, ?, ?)')
-      .run(fromNodeId, toNodeId, relation, Date.now());
+    linkNodes(this.db, fromNodeId, toNodeId, relation);
   }
 
   /** Ids linked from `fromNodeId` under one relation, most recently linked first. Empty if none exist. */
   getLinkedNodeIds(fromNodeId: string, relation: string): string[] {
-    return (
-      this.db
-        .prepare('SELECT to_node_id FROM node_links WHERE from_node_id = ? AND relation = ? ORDER BY created_at DESC')
-        .all(fromNodeId, relation) as Array<{ to_node_id: string }>
-    ).map((row) => row.to_node_id);
+    return getLinkedNodeIds(this.db, fromNodeId, relation);
   }
 
   /**
