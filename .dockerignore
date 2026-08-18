@@ -1,0 +1,11 @@
+node_modules
+dist
+.nexusmem
+.git
+.github
+tests
+vscode-extension
+website
+bench
+scratchpad
+*.log
