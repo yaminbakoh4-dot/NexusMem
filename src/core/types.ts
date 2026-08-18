@@ -15,6 +15,24 @@ export type NodeKind =
   | 'doc_section'
   | 'session_summary';
 
+/** Whether a node records something that actually happened, or something derived/guessed from that. Set per-collector at ingest time. */
+export type Provenance = 'observed' | 'inferred';
+
+/** Fallback for nodes written without an explicit `provenance` (older callers, test fixtures). */
+export function defaultProvenanceForKind(kind: NodeKind): Provenance {
+  switch (kind) {
+    case 'git_commit':
+    case 'code_diff':
+    case 'shell_command':
+      return 'observed';
+    case 'conversation_turn':
+    case 'session_summary':
+    case 'doc_section':
+    case 'note':
+      return 'inferred';
+  }
+}
+
 /** A single file touched by an event. */
 export interface FileTouch {
   /** Repo-relative path, forward slashes, post-rename. */
@@ -52,4 +70,8 @@ export interface MemoryNode {
   signal: number;
   /** Kind-specific extras. Persisted as a JSON blob. */
   meta: Record<string, unknown>;
+  /** Optional here so it can default via `defaultProvenanceForKind`; collectors set it explicitly. */
+  provenance?: Provenance;
+  /** Id of an older node this one replaces. Down-weighted by the ranker, never deleted. Written by `nexusmem mark-stale`. */
+  supersedes?: string | null;
 }

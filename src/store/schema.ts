@@ -194,6 +194,20 @@ CREATE TABLE tombstones (
 CREATE INDEX idx_tombstones_project ON tombstones (project_id, removed_at DESC);
 `;
 
+// Manual staleness tracking: `supersedes` points at the older node a new one
+// replaces (set by `nexusmem mark-stale`); `provenance` records observed vs.
+// derived. Backfilled by kind rather than left at the DEFAULT, since an
+// unchanged node is never rewritten by a later sync (see `upsertNodes`) and
+// so would never otherwise pick up the right value.
+const V6 = `
+ALTER TABLE nodes ADD COLUMN provenance TEXT NOT NULL DEFAULT 'inferred';
+ALTER TABLE nodes ADD COLUMN supersedes TEXT;
+
+UPDATE nodes SET provenance = 'observed' WHERE kind IN ('git_commit', 'code_diff', 'shell_command');
+
+CREATE INDEX idx_nodes_supersedes ON nodes (supersedes) WHERE supersedes IS NOT NULL;
+`;
+
 interface Migration {
   version: number;
   up: (db: Database) => void;
@@ -205,6 +219,7 @@ const MIGRATIONS: Migration[] = [
   { version: 3, up: (db) => db.exec(V3) },
   { version: 4, up: (db) => db.exec(V4) },
   { version: 5, up: (db) => db.exec(V5) },
+  { version: 6, up: (db) => db.exec(V6) },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;
