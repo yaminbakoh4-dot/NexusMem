@@ -9,6 +9,38 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
 
 ## [Unreleased]
 
+## [0.5.2] — 2026-08-18
+
+### Added
+
+- **`nexusmem mark-stale <nodeId> --supersedes <newNodeId>`, `provenance`, and manual staleness
+  tracking.** A pre-Show-HN pass answering a public critique that this couldn't tell an observed
+  fact from a guess, or retire a stale conclusion. Every node now carries `provenance`
+  (`observed`/`inferred`, set per-collector: git commits, diffs, and shell commands are `observed`;
+  conversation turns, session summaries, and doc sections are `inferred`) and an optional
+  `supersedes` link. `mark-stale` writes that link; the ranker applies a flat down-weight to whatever
+  it points at, but never deletes it -- the old node stays queryable, just usually loses to its
+  replacement. `provenance` is shown as a `[observed]`/`[inferred]` tag on every query result (CLI
+  and MCP `search_memory` share the same renderer). This is deliberately not automatic: nothing
+  detects staleness on its own, a human or agent still has to notice the contradiction and run the
+  command. See the README's new "Manual staleness & provenance" section.
+
+### Verified
+
+- **`forget` does not leak through vector search.** Checked whether `MemoryStore.forget` excludes a
+  tombstoned node from `sqlite-vec` results only via a query-time filter (which every vector query
+  path would need to apply consistently) or by deleting the embedding row outright. It already does
+  the latter -- `dropEmbedding` runs before the node row is deleted, in the same transaction, on both
+  query paths (`runHybridQuery` and `runCrossProjectQuery`, which both call the same
+  `MemoryStore.vectorSearch`). No fix was needed; added a regression test
+  (`tests/vector.test.ts`) that forgets an embedded node and asserts both `vectorSearch` returns
+  nothing and the `nodes_vec` row count drops to zero, so this can't silently regress.
+- **`forget` survives `sync --rebuild`.** This was the point of v0.5.0 and was already covered
+  end-to-end in `tests/forget.test.ts`. Added a lower-level `tests/store.test.ts` case pinning the
+  exact mechanism: `clearProject` (what `--rebuild` calls before re-ingesting) only touches
+  `nodes`/`nodes_vec`/`sync_state`, never `deny_list`, so a re-ingest of the same content is denied
+  again rather than resurrected.
+
 ## [0.5.1] — 2026-08-17
 
 ### Added
