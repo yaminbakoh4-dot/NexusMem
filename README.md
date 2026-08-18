@@ -21,6 +21,13 @@ The shell history is the part worth caring about. Git tells an agent what shippe
 tells it what was attempted, in what order, and which commands exited non-zero. That information
 exists nowhere else, and it disappears when your terminal scrollback rolls over.
 
+**Contents:** [Try it](#try-it) · [Exact shell capture](#optional-exact-shell-capture) ·
+[Failure → fix chains](#failure--fix-chains-opt-in) · [How retrieval works](#how-retrieval-works) ·
+[Session summaries](#session-summaries-optional-local-model) · [Use it from an agent](#use-it-from-an-agent)
+· [What it costs you](#what-it-costs-you) · [Manual staleness & provenance](#manual-staleness--provenance) ·
+[Where it breaks](#where-it-breaks) · [Commands](#commands) · [Cross-project recall](#recall-across-projects)
+· [On disk](#on-disk) · [Development](#development)
+
 ## Try it
 
 From inside any git repository:
@@ -37,13 +44,16 @@ $ nexusmem query "windows spawn failure"
 
 Relevant history for: windows spawn failure
 
-- 2026-08-09 fix: distinguish a failed git spawn from "not a git repository"
+- 2026-08-09 [observed] fix: distinguish a failed git spawn from "not a git repository"
   readRepoInfo collapsed three unrelated failures into one error: git running and reporting
   the path is not a work tree, git not being installed, and the process failing to spawn at
   all. Dogfooding hit the third case in two separate sessions...
-- 2026-08-09 README.md — Before a tagged release
+- 2026-08-09 [inferred] README.md — Before a tagged release
   - [ ] Retry on transient process-spawn failures on Windows
 ```
+
+`[observed]`/`[inferred]` is the provenance tag (see [Manual staleness & provenance](#manual-staleness--provenance))
+— a commit is a directly observed event, a doc section is a written claim that could go stale.
 
 A commit and a docs section, ranked against each other, inside whatever token budget you gave it.
 Nothing was summarized by a model on the way out; the ranker just decided what not to send. (One
@@ -117,19 +127,17 @@ project they were found in.
 ```
 $ nexusmem query "why did npm whoami fail"
 
-- 2026-08-12 shell: npm whoami  (exit 1)
-- 2026-08-12 shell: npm login   (exit 0)  -- linked as the fix
+- 2026-08-12 [observed] shell: npm whoami  (exit 1)
+- 2026-08-12 [observed] shell: npm login   (exit 0)  -- linked as the fix
 ```
 
 ## How retrieval works
 
 Every source normalizes to the same `MemoryNode` shape, so a commit, a shell command and a docs
 section compete on equal terms. Retrieval runs BM25 over FTS5 and, if an embedding model is
-reachable, a vector search over `sqlite-vec`, then fuses the two with Reciprocal Rank Fusion.
-
-RRF fuses on rank *position* only, never on raw scores. That is the entire reason it is safe here: a
-BM25 cost and a vector distance live on unrelated, unbounded scales, and position is the only thing
-they agree on. No hand-tuned normalization constant sits between them.
+reachable, a vector search over `sqlite-vec`, fused with Reciprocal Rank Fusion on rank *position*
+only, never raw scores — a BM25 cost and a vector distance live on unrelated, unbounded scales, and
+position is the only thing they agree on.
 
 Ranking then multiplies three factors:
 
@@ -137,27 +145,19 @@ Ranking then multiplies three factors:
 score = relevance × signal^0.215 × recency^0.288
 ```
 
-`relevance` comes from the query. `signal` (a `fix:` commit outranks a `chore:`; a command that
-exited non-zero outranks one that succeeded) and `recency` are priors that hold before any query
-exists. Each factor is floored into `[floor, 1]` rather than `[0, 1]`, so one weak dimension cannot
-zero out a strong match.
+`relevance` comes from the query. `signal` (a `fix:` commit outranks a `chore:`; a failed command
+outranks a successful one) and `recency` are priors that hold before any query exists. Each factor is
+floored into `[floor, 1]` rather than `[0, 1]`, so one weak dimension can't zero out a strong match.
 
-Those exponents are derived, not tuned. Priors kept overturning the query: on one real query a `fix:`
-commit took rank 1 from a better-matching docs section on a 44% signal edge against a 15% relevance
-deficit. So the priors get a **shared** budget — across their whole range they may overturn at most a
-2× relevance gap — split evenly between them, and each is raised to the power that makes its own span
-worth exactly its share (`span^exponent = √2`). Priors still order equally-relevant hits exactly as
-before, since the transform is monotonic. They just cannot outvote the question anymore.
+The exponents bound how far signal and recency, *together*, may overturn relevance: at most a 2× gap
+across their whole range, applied jointly rather than per-prior. That's deliberate — the score
+*multiplies* the two priors, so capping each at 2× separately still let the pair overturn 4×, and
+that hit hardest on fresh, high-signal commits made during an active working day. The bug that
+exposed this: two unrelated same-day `fix:` commits outranked the docs section that actually answered
+the query. See [`retrieval/rank.ts`](src/retrieval/rank.ts) for the full derivation.
 
-The budget is shared rather than per-prior for a reason found by dogfooding, not by reading the
-arithmetic: the score *multiplies* the priors, so capping each at 2× separately left the pair free to
-overturn 4×. That describes every commit made during an active working day — fresh and high-signal at
-once — so the failure landed on precisely the days with the most worth remembering. A query about the
-PowerShell hook returned two unrelated same-day `fix:` commits at ranks 3 and 4 while the section that
-answered it sat at rank 6. Adding a third prior now re-divides the same budget instead of enlarging it.
-
-Without Ollama, vector search is skipped and you get BM25 only. That path is fully supported, not a
-degraded error state; `sync` and `query` both succeed and simply do less.
+Without Ollama, vector search is skipped and you get BM25 only — fully supported, not a degraded
+state; `sync` and `query` both succeed and simply do less.
 
 ## Session summaries (optional, local model)
 
@@ -228,27 +228,21 @@ and points it at a synced corpus can re-run from scratch:
 Both clear the original >70% target ("cut API token spend versus sending full context"), and the vite
 run is the first measurement at the scale that target was always described as applying to.
 
-**Read the methodology before quoting either number, because it is a narrower claim than it looks:**
+**Read the methodology before quoting either number — it's a narrower claim than it looks:**
 
-- The file set each query is graded against comes from NexusMem's *own* ranking — whichever files the
-  packed nodes for that query touch, not an outside judge's idea of the right answer. This isolates
-  what the pack step (rank → budget → excerpt) saves once retrieval has already picked a candidate
-  set; it does not independently verify that the candidate set was the right one to pick.
-- The vite query set is not hand-picked: an even sample, across the full commit history, of
-  well-explained `fix`/`feat`/`perf`/`refactor` commits turned into "why does vite `<description>`"
-  from the commit's own conventional-commit text, plus rationale-bearing doc section headings. This
-  repo's own query set instead reuses real historical prompts verbatim from `conversation_turn`
-  nodes — several are broad task instructions rather than narrow questions, which pulls a wider file
-  set into scope and is part of why its number, while still high, sits below vite's. Both derivations
-  are mechanical and disclosed in `scripts/benchmark.ts`, neither is cherry-picked per-query.
-- `git log -p` on a file touched by thousands of commits is enormous — one vite query's baseline hit
-  7.5M tokens because a file in its resolved set has that much history. That is itself a finding, not
-  noise: at this scale, "just read the file's history instead" stops being a viable alternative at
-  all, which is a big part of why that column rounds to ~100%.
-- **This supersedes the previous ~40% figure**, which was hand-tallied from two hand-picked queries
-  against this repo alone, never instrumented, and used an unstated baseline. It was not wrong so much
-  as underspecified — this number replaces it with a stated method and a script that reproduces it,
-  rather than being a claim that the product got better.
+- **Graded against NexusMem's own ranking**, not an outside answer key: the file set is whichever
+  files the packed nodes for that query touch. This measures what the pack step saves once retrieval
+  already picked a candidate set; it doesn't independently verify that set was the right one.
+- **Query sets are mechanical, not cherry-picked** (see `scripts/benchmark.ts`): vite's is an even
+  sample of well-explained `fix`/`feat`/`perf`/`refactor` commits plus rationale-bearing doc headings;
+  this repo's reuses real historical prompts verbatim, several of which are broad task instructions
+  rather than narrow questions — part of why its number sits below vite's.
+- **`git log -p` baselines can be enormous** — one vite query's baseline hit 7.5M tokens because a
+  file in its resolved set has that much history. At that scale, "just read the file's history
+  instead" stops being a viable alternative at all.
+- **Supersedes the old ~40% figure**, which was hand-tallied from two hand-picked queries against
+  this repo alone with an unstated baseline. Not wrong, just underspecified — this replaces it with a
+  stated method and a script that reproduces it.
 
 One thing that is not a percentage: shell commands and conversation turns have no cheap `grep`
 equivalent. Without something recording them, they are gone, not merely more expensive to find.
@@ -268,6 +262,29 @@ Latency on a ~530-node corpus, warm, p50 over 10 runs:
 
 All the SQLite work totals about 5 ms. The embedding call is the only thing on this path worth
 optimizing, and it is somebody else's process.
+
+## Manual staleness & provenance
+
+Two things a memory layer needs and this one only partly has: a way to tell an observed fact from a
+guess, and a way to retire a conclusion once something contradicts it. Neither is automatic here —
+this section is what exists and what doesn't.
+
+Every node carries a `provenance`: `observed` (a commit that landed, a shell command's real exit
+code) or `inferred` (a conversation turn, a session summary, a doc section — all readable as claims
+that could be wrong or go stale). Set once per collector at ingest time, and shown as a `[observed]`
+/ `[inferred]` tag on every query result.
+
+```bash
+nexusmem mark-stale <oldNodeId> --supersedes <newNodeId>
+```
+
+Links `newNodeId` as the replacement for `oldNodeId`. The ranker down-weights the old node from then
+on (it stays queryable, just usually loses to its replacement) — nothing is deleted, unlike `forget`.
+
+**What this doesn't do:** nothing here detects staleness on its own. If a later commit contradicts an
+earlier doc section, NexusMem has no way to notice that and flag it — a human or an agent has to spot
+the contradiction and run `mark-stale` themselves. Automatic staleness detection is still an open
+problem.
 
 ## Where it breaks
 
@@ -334,8 +351,8 @@ optimizing, and it is somebody else's process.
 
 ## Commands
 
-`init`, `sync`, `query <text>`, `status`, `projects`, `mcp`, `forget <value>`, and
-`hook install|remove|status`.
+`init`, `sync`, `query <text>`, `status`, `projects`, `mcp`, `forget <value>`,
+`mark-stale <nodeId> --supersedes <newNodeId>`, and `hook install|remove|status`.
 
 There are also five dry-run previews (`scan-git`, `scan-diff`, `scan-shell`, `scan-docs`,
 `scan-conversation`)
@@ -366,12 +383,12 @@ and tags each result with the repository it came from:
 $ nexusmem query --all-projects "why was the retry budget raised"
 scope   2 project(s): NexusMem, uploader
 
-- 2026-08-12 [uploader] fix: raise the retry budget after the S3 upload timeouts
-- 2026-08-12 [uploader] retry.ts @ 8d0f98b — fix: raise the retry budget after the S3 upload timeouts
+- 2026-08-12 [observed] [uploader] fix: raise the retry budget after the S3 upload timeouts
+- 2026-08-12 [observed] [uploader] retry.ts @ 8d0f98b — fix: raise the retry budget after the S3 upload timeouts
   @@ -1 +1 @@
   -export const RETRY_BUDGET = 3;
   +export const RETRY_BUDGET = 5;
-- 2026-08-09 [NexusMem] fix(git): retry a transient failure to spawn git
+- 2026-08-09 [observed] [NexusMem] fix(git): retry a transient failure to spawn git
 ```
 
 Databases stay per-repository — there is no shared global store, and deleting one repo's
@@ -409,7 +426,7 @@ Deleting `.nexusmem/` loses nothing that `sync` cannot rebuild.
 
 ## Status
 
-Ingestion, hybrid retrieval, budgeted packing and the MCP server all work and are covered by 342
+Ingestion, hybrid retrieval, budgeted packing and the MCP server all work and are covered by 493
 tests running on Linux and Windows across Node 22 and 24.
 
 ## Development
