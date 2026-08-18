@@ -3,8 +3,7 @@ import { collectCommitDiffs } from '../../collectors/diffs.js';
 import { makeProjectId } from '../../core/project.js';
 import type { MemoryNode } from '../../core/types.js';
 import { readRepoInfo } from '../../git/repo.js';
-import { DIFF_SIGNAL_BANDS, formatSignal } from '../format.js';
-import { summarize } from './scan-git.js';
+import { DIFF_SIGNAL_BANDS, formatSignal, summarize } from '../format.js';
 
 export interface ScanDiffOptions {
   cwd: string;

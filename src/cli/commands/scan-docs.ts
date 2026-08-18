@@ -1,11 +1,10 @@
 import pc from 'picocolors';
 import { collectDocFiles } from '../../collectors/docs.js';
 import { makeProjectId } from '../../core/project.js';
-import { approxTokens } from '../../core/text.js';
 import type { MemoryNode } from '../../core/types.js';
 import { readDocFiles } from '../../docs/read.js';
 import { readRepoInfo } from '../../git/repo.js';
-import { DOCS_SIGNAL_BANDS, formatSignal } from '../format.js';
+import { approxTotalTokens, DOCS_SIGNAL_BANDS, formatSignal } from '../format.js';
 
 export interface ScanDocsOptions {
   cwd: string;
@@ -39,7 +38,7 @@ export async function runScanDocs(opts: ScanDocsOptions): Promise<number> {
 
   for (const node of nodes) process.stdout.write(`${formatNode(node)}\n`);
 
-  const approxTotal = nodes.reduce((n, x) => n + approxTokens(x.body), 0);
+  const approxTotal = approxTotalTokens(nodes);
   process.stderr.write(
     `\n${pc.bold(String(nodes.length))} section(s) from ${files.length} file(s) above threshold  ${pc.dim(`~${approxTotal.toLocaleString()} tokens if sent raw`)}\n`,
   );

@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { summarize } from '../src/cli/commands/scan-git.js';
 import {
+  approxTotalTokens,
   CONVERSATION_SIGNAL_BANDS,
   DOCS_SIGNAL_BANDS,
   formatSignal,
   GIT_SIGNAL_BANDS,
   SHELL_SIGNAL_BANDS,
   signalBand,
+  summarize,
   type SignalBands,
 } from '../src/cli/format.js';
 import { approxTokens } from '../src/core/text.js';
@@ -17,10 +18,10 @@ import type { MemoryNode } from '../src/core/types.js';
  * same label -- "~N tokens if sent raw" -- as the headline number a user reads
  * to judge how much context NexusMem is saving them.
  *
- * Three of the four import `approxTokens` from `core/text.ts`. `scan-git`
- * reimplements it inline as `Math.round(totalChars / 4)`, which is not the same
- * function: the shared helper is `Math.ceil` applied *per node*, so the two
- * diverge on any corpus of more than one node. Same label, different arithmetic.
+ * All four now go through the one shared `approxTotalTokens` in `cli/format.ts`
+ * (git and diff via `summarize`, the other three directly), so this pins that
+ * the total it computes still lines up with `approxTokens` applied per node --
+ * the two used to diverge when `scan-git` reimplemented the sum inline.
  */
 
 function node(body: string): MemoryNode {
@@ -56,6 +57,17 @@ describe('scan-git summary', () => {
   it('agrees with the shared helper on a single node too', () => {
     const nodes = [node('a'.repeat(4001))];
     expect(reportedTokens(summarize(nodes))).toBe(approxTokens(nodes[0]!.body));
+  });
+});
+
+describe('approxTotalTokens', () => {
+  it('sums approxTokens per node -- the figure scan-conversation/docs/shell report directly', () => {
+    const nodes = [node('x'.repeat(5)), node('y'.repeat(37)), node('z'.repeat(4001))];
+    expect(approxTotalTokens(nodes)).toBe(nodes.reduce((n, x) => n + approxTokens(x.body), 0));
+  });
+
+  it('is 0 for an empty batch', () => {
+    expect(approxTotalTokens([])).toBe(0);
   });
 });
 

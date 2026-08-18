@@ -1,10 +1,9 @@
 import pc from 'picocolors';
 import { collectGitCommits } from '../../collectors/git-commits.js';
 import { makeProjectId } from '../../core/project.js';
-import { approxTokens } from '../../core/text.js';
 import type { MemoryNode } from '../../core/types.js';
 import { readRepoInfo } from '../../git/repo.js';
-import { formatSignal, GIT_SIGNAL_BANDS } from '../format.js';
+import { formatSignal, GIT_SIGNAL_BANDS, summarize } from '../format.js';
 
 export interface ScanGitOptions {
   cwd: string;
@@ -65,32 +64,4 @@ function formatNode(node: MemoryNode): string {
     node.title,
     pc.dim(`(${files} file${files === 1 ? '' : 's'}, ${churn})`),
   ].join(' ');
-}
-
-/** Exported for tests: the token total it reports must match every other scan command's. */
-export function summarize(nodes: MemoryNode[]): string {
-  if (nodes.length === 0) return pc.yellow('no commits matched');
-
-  const timestamps = nodes.map((n) => n.ts).sort();
-  const avgSignal = nodes.reduce((n, x) => n + x.signal, 0) / nodes.length;
-  // The shared helper, not a local re-derivation: every scan command prints
-  // this same "tokens if sent raw" figure, so they must all count it alike.
-  const totalTokens = nodes.reduce((n, x) => n + approxTokens(x.body), 0);
-
-  const fileHits = new Map<string, number>();
-  for (const node of nodes) {
-    for (const f of node.files) fileHits.set(f.path, (fileHits.get(f.path) ?? 0) + 1);
-  }
-  const hottest = [...fileHits.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5)
-    .map(([path, count]) => `    ${String(count).padStart(3)}x ${path}`);
-
-  return [
-    `${pc.bold(String(nodes.length))} nodes  ${pc.dim(`${timestamps[0]?.slice(0, 10)} .. ${timestamps.at(-1)?.slice(0, 10)}`)}`,
-    `  avg signal ${avgSignal.toFixed(3)}   ~${totalTokens.toLocaleString()} tokens if sent raw`,
-    hottest.length ? `  hottest files:\n${hottest.join('\n')}` : '',
-  ]
-    .filter(Boolean)
-    .join('\n');
 }

@@ -1,4 +1,6 @@
 import pc from 'picocolors';
+import { approxTokens } from '../core/text.js';
+import type { MemoryNode } from '../core/types.js';
 
 /**
  * Shared rendering for the `scan-*` commands.
@@ -67,4 +69,49 @@ const BAND_COLOR: Record<SignalBand, (s: string) => string> = {
 /** A node's signal as a fixed-width, color-graded figure. */
 export function formatSignal(signal: number, bands: SignalBands): string {
   return BAND_COLOR[signalBand(signal, bands)](signal.toFixed(2));
+}
+
+/**
+ * The "~N tokens if sent raw" figure every `scan-*` command reports.
+ *
+ * A single reduce, but the point of pulling it out is that every scan
+ * command must count it the same way -- see `tests/cli-scan.test.ts`, which
+ * pins this against `scan-git`'s fuller `summarize` output.
+ */
+export function approxTotalTokens(nodes: readonly MemoryNode[]): number {
+  return nodes.reduce((n, x) => n + approxTokens(x.body), 0);
+}
+
+/**
+ * `scan-git` and `scan-diff`'s multi-line summary: node count, date range,
+ * average signal, total tokens, and the files that recur most across the
+ * batch. Not used by `scan-conversation`/`scan-docs`/`scan-shell` -- their
+ * nodes carry no `files`, so "hottest files" would always be empty.
+ *
+ * Exported for tests: the token total it reports must match every other
+ * scan command's (`approxTotalTokens`, above).
+ */
+export function summarize(nodes: MemoryNode[]): string {
+  if (nodes.length === 0) return pc.yellow('no commits matched');
+
+  const timestamps = nodes.map((n) => n.ts).sort();
+  const avgSignal = nodes.reduce((n, x) => n + x.signal, 0) / nodes.length;
+  const totalTokens = approxTotalTokens(nodes);
+
+  const fileHits = new Map<string, number>();
+  for (const node of nodes) {
+    for (const f of node.files) fileHits.set(f.path, (fileHits.get(f.path) ?? 0) + 1);
+  }
+  const hottest = [...fileHits.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([path, count]) => `    ${String(count).padStart(3)}x ${path}`);
+
+  return [
+    `${pc.bold(String(nodes.length))} nodes  ${pc.dim(`${timestamps[0]?.slice(0, 10)} .. ${timestamps.at(-1)?.slice(0, 10)}`)}`,
+    `  avg signal ${avgSignal.toFixed(3)}   ~${totalTokens.toLocaleString()} tokens if sent raw`,
+    hottest.length ? `  hottest files:\n${hottest.join('\n')}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
 }

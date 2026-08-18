@@ -1,11 +1,10 @@
 import pc from 'picocolors';
 import { collectShellHistory } from '../../collectors/shell-history.js';
 import { makeProjectId } from '../../core/project.js';
-import { approxTokens } from '../../core/text.js';
 import type { MemoryNode } from '../../core/types.js';
 import { readRepoInfo } from '../../git/repo.js';
 import { collectAvailableShellHistory } from '../../shell/detect.js';
-import { formatSignal, SHELL_SIGNAL_BANDS } from '../format.js';
+import { approxTotalTokens, formatSignal, SHELL_SIGNAL_BANDS } from '../format.js';
 
 export interface ScanShellOptions {
   cwd: string;
@@ -45,7 +44,7 @@ export async function runScanShell(opts: ScanShellOptions): Promise<number> {
     return 0;
   }
 
-  const approxTotal = allNodes.reduce((n, x) => n + approxTokens(x.body), 0);
+  const approxTotal = approxTotalTokens(allNodes);
   process.stderr.write(`${pc.bold(String(allNodes.length))} node(s) total  ${pc.dim(`~${approxTotal.toLocaleString()} tokens if sent raw`)}\n`);
 
   return 0;

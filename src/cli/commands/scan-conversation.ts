@@ -3,10 +3,9 @@ import { collectConversationTurns } from '../../collectors/conversation.js';
 import { collectClaudeCodeTranscripts } from '../../conversation/claude-code-reader.js';
 import { claudeProjectTranscriptDir, listTranscriptFiles } from '../../conversation/paths.js';
 import { makeProjectId } from '../../core/project.js';
-import { approxTokens } from '../../core/text.js';
 import type { MemoryNode } from '../../core/types.js';
 import { readRepoInfo } from '../../git/repo.js';
-import { CONVERSATION_SIGNAL_BANDS, formatSignal } from '../format.js';
+import { approxTotalTokens, CONVERSATION_SIGNAL_BANDS, formatSignal } from '../format.js';
 
 export interface ScanConversationOptions {
   cwd: string;
@@ -39,7 +38,7 @@ export async function runScanConversation(opts: ScanConversationOptions): Promis
   for (const node of nodes) process.stdout.write(`${formatNode(node)}\n`);
 
   const redactedTotal = nodes.reduce((n, x) => n + (Number(x.meta.redactedCount) || 0), 0);
-  const approxTotal = nodes.reduce((n, x) => n + approxTokens(x.body), 0);
+  const approxTotal = approxTotalTokens(nodes);
   process.stderr.write(
     `\n${pc.bold(String(nodes.length))} of ${turns.length} exchange(s) above threshold  ${pc.dim(`~${approxTotal.toLocaleString()} tokens if sent raw`)}` +
       (redactedTotal > 0 ? `  ${pc.yellow(`${redactedTotal} secret-like value(s) redacted`)}` : '') +
