@@ -102,6 +102,7 @@ function toNode(
     // like this" reach the session that explains it.
     files: extractMentionedFiles(session.turns.map((t) => `${t.userText}\n${t.assistantText}`).join('\n')),
     signal: scoreSession(session.turns.length),
+    provenance: 'inferred', // a model's distillation, not a directly observed event
     meta: {
       sessionKey: session.sessionKey,
       source: session.source,

@@ -131,6 +131,7 @@ export function toMemoryNode(
     body: truncate(bodyParts.join('\n'), maxBody),
     files: keptFiles,
     signal: scoreCommit(commit),
+    provenance: 'observed',
     meta: {
       sha: commit.sha,
       shortSha: commit.shortSha,

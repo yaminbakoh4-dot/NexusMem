@@ -139,6 +139,7 @@ export function toMemoryNodes(
         },
       ],
       signal: scoreFileDiff(commit.subject, file),
+      provenance: 'observed',
       meta: {
         sha: commit.sha,
         shortSha: commit.shortSha,

@@ -74,6 +74,7 @@ export function toMemoryNode(entry: RawShellEntry, projectId: string, opts: Shel
     body: renderBody(entry, maxBody),
     files: [],
     signal: scoreShellCommand(entry),
+    provenance: 'observed',
     meta: {
       command: entry.command,
       cwd: entry.cwd,
