@@ -155,6 +155,23 @@ describe('MemoryStore vector search (real sqlite-vec extension)', () => {
     const remaining = store.raw.prepare('SELECT COUNT(*) AS n FROM nodes_vec').get() as { n: number };
     expect(remaining.n).toBe(0);
   });
+
+  it('forget removes the node from vector search too, not just BM25 -- the embedding row itself is dropped', () => {
+    store.upsertNodes([node({ id: 'secret', title: 'export API_KEY=sk-vector-leak-test', body: 'export API_KEY=sk-vector-leak-test' })]);
+    const [pending] = store.findNodesNeedingEmbedding(PROJECT);
+    const queryVector = new Float32Array(EMBEDDING_DIM).fill(0.42);
+    store.upsertEmbedding(pending!.rowid, queryVector);
+
+    expect(store.vectorSearch(PROJECT, queryVector, 5).map((h) => h.id)).toContain('secret');
+    const vecCountBefore = (store.raw.prepare('SELECT COUNT(*) AS n FROM nodes_vec').get() as { n: number }).n;
+    expect(vecCountBefore).toBe(1);
+
+    store.forget(PROJECT, [], { matchType: 'literal', pattern: 'sk-vector-leak-test', ignoreCase: false, reason: null });
+
+    expect(store.vectorSearch(PROJECT, queryVector, 5)).toEqual([]);
+    const vecCountAfter = (store.raw.prepare('SELECT COUNT(*) AS n FROM nodes_vec').get() as { n: number }).n;
+    expect(vecCountAfter).toBe(0); // the embedding row itself is gone, not just excluded by a post-filter
+  });
 });
 
 describe('embedPendingNodes', () => {
