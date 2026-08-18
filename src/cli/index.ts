@@ -11,6 +11,7 @@ import { runForget } from './commands/forget.js';
 import { runHookGitInstall, runHookGitRemove, runHookGitStatus } from './commands/hook-git.js';
 import { runHookInstall, runHookRemove, runHookStatus } from './commands/hook.js';
 import { runInit } from './commands/init.js';
+import { MarkStaleError, runMarkStale } from './commands/mark-stale.js';
 import { runProjects } from './commands/projects.js';
 import { runMcpServer } from '../mcp/server.js';
 import { runPrecheck } from './commands/precheck.js';
@@ -38,7 +39,8 @@ function isExpected(err: unknown): err is Error {
     err instanceof ConfigError ||
     err instanceof ProfileNotFoundError ||
     err instanceof ForeignGitHookError ||
-    err instanceof DenyListError
+    err instanceof DenyListError ||
+    err instanceof MarkStaleError
   );
 }
 
@@ -229,6 +231,18 @@ program
         yes: options.yes,
       }),
     )(),
+  );
+
+program
+  .command('mark-stale')
+  .description(
+    'Mark a node as superseded by another -- the ranker down-weights it (never deletes it) so its replacement usually outranks it',
+  )
+  .argument('<nodeId>', 'id of the node to mark stale')
+  .requiredOption('--supersedes <newNodeId>', 'id of the node that supersedes it')
+  .option('-C, --cwd <path>', 'repository path', process.cwd())
+  .action((nodeId: string, options) =>
+    guard(() => runMarkStale({ cwd: options.cwd, nodeId, supersedesId: options.supersedes }))(),
   );
 
 program
