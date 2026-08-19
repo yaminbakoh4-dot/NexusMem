@@ -9,6 +9,43 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
 
 ## [Unreleased]
 
+## [0.5.3] — 2026-08-19
+
+No functional changes to the CLI, MCP server, or published package -- a test-coverage and
+CI-reliability pass.
+
+### Verified
+
+- **Closed 15 genuine test-coverage gaps**, found by grepping for real call sites in `tests/`
+  rather than guessing from filenames (an Explore agent found the first 7; the rest by hand the
+  same way). All 7 `scan-*` CLI subcommands (`scan-git`/`diff`/`shell`/`docs`/`conversation`/
+  `structure`/`session`) had zero coverage -- `tests/cli-scan.test.ts`'s name was misleading, it
+  only pinned `cli/format.ts`'s shared helpers. Also closed: `runStatus`'s report body beyond the
+  stale-identity branch, `runQuery`, `forget --import`'s dry-run preview path, `shell/detect.ts`'s
+  zsh scraping and hook-log `repoRoot` scoping, `openAllProjectSources`'s `unreadable` branch,
+  `cli/context.ts`'s `loadContext`, `store/fts.ts`'s `toStrictMatchQuery`/`significantTokens`,
+  `list_recent_memory`'s MCP `structuredContent` at the protocol level, `structure/resolve.ts`'s
+  `.mjs`/`.cjs` rewrite, `docs/read.ts`'s `include` option, and `git/log.ts`'s `buildLogArgs`. Test
+  suite: 559 → 592 tests.
+
+### Fixed
+
+- **A real test-isolation bug: a test could scrape a developer's actual shell history into a
+  throwaway test database.** `tests/setup.ts` isolated `NEXUSMEM_HOME` (so a test `sync()` can't
+  pollute the real `~/.nexusmem/projects.json` registry -- fixed 2026-08-15 for the same reason)
+  but never isolated `APPDATA`/`HISTFILE_BASH`/`HISTFILE`, so any test running a real `sync()`
+  scraped whatever PSReadLine/bash/zsh history actually exists on the machine running the suite.
+  Observed directly: a new test here ingested 300 real `shell_command` nodes off this machine's
+  own history before the fix. Now isolated the same way as the registry.
+- **CI failed (deterministically, all 4 jobs) on 4 assertions that assumed adjacent words in
+  colorized CLI output stay contiguous.** GitHub Actions' runners don't have `NO_COLOR` set the
+  way this project's local dev shells apparently do, so `picocolors` emits real ANSI codes there --
+  a regex like `/git\s+last run/` breaks when an escape sequence sits between a padded label and a
+  separately-colored value. `tests/forget.test.ts` already carries a `stripAnsi()` helper for
+  exactly this trap; applied the same fix to the 4 newly-added test files that had it. Verified by
+  reproducing the CI failure locally with `FORCE_COLOR=1` before the fix, then re-running the full
+  592-test suite under `FORCE_COLOR=1` after, to check for any other latent instance.
+
 ## [0.5.2] — 2026-08-18
 
 ### Added
