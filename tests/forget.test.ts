@@ -170,6 +170,64 @@ describe('nexusmem forget', () => {
     expect(summary).toMatch(/unit test/);
   });
 
+  it('--import without --yes previews what would be imported and deletes nothing', async () => {
+    seed([gitNode(projectId, 'import-preview-1', 'export API_KEY=sk-import-preview')]);
+    const before = nodeIds();
+    const targetId = makeNodeId(projectId, 'git_commit', 'import-preview-1');
+    expect(before).toContain(targetId);
+
+    const exportFile = join(dir, 'deny-list-preview.json');
+    writeFileSync(
+      exportFile,
+      JSON.stringify({
+        version: 1,
+        entries: [{ matchType: 'literal', pattern: 'sk-import-preview', ignoreCase: false, reason: 'preview test' }],
+      }),
+    );
+
+    const chunks: string[] = [];
+    const code = await runForget({ cwd: dir, import: exportFile, out: (c) => chunks.push(c) });
+
+    expect(code).toBe(0);
+    const summary = stripAnsi(chunks.join(''));
+    expect(summary).toMatch(/would import 1 new deny-list entrie\(s\)/);
+    expect(summary).toMatch(/removing 1 node\(s\)/);
+    expect(summary).toMatch(/--yes/);
+
+    // Discriminating: a broken preview that imported for real would both
+    // delete the node and write a deny-list row -- neither should happen yet.
+    expect(nodeIds()).toContain(targetId);
+    const ws = resolveWorkspace(dir);
+    const store = MemoryStore.open(ws.dbPath);
+    try {
+      const denyCount = (store.raw.prepare('SELECT COUNT(*) AS c FROM deny_list WHERE project_id = ?').get(projectId) as { c: number })
+        .c;
+      expect(denyCount).toBe(0);
+    } finally {
+      store.close();
+    }
+  });
+
+  it('--import reports nothing to do when every entry in the file is already active', async () => {
+    const exportFile = join(dir, 'deny-list-already-active.json');
+    writeFileSync(
+      exportFile,
+      JSON.stringify({
+        version: 1,
+        entries: [{ matchType: 'literal', pattern: 'sk-already-active', ignoreCase: false, reason: null }],
+      }),
+    );
+
+    const firstImport = await runForget({ cwd: dir, import: exportFile, yes: true, out: () => {} });
+    expect(firstImport).toBe(0);
+
+    const chunks: string[] = [];
+    const code = await runForget({ cwd: dir, import: exportFile, out: (c) => chunks.push(c) });
+
+    expect(code).toBe(0);
+    expect(stripAnsi(chunks.join(''))).toMatch(/all 1 entrie\(s\).*already active.*nothing to do/);
+  });
+
   it(
     'the resurrection bug is fixed: a forgotten value does not come back after sync --rebuild, ' +
       'while an unrelated command in the same log does',
