@@ -300,4 +300,40 @@ describe('openAllProjectSources', () => {
       opened.close();
     }
   });
+
+  it('reports a registered database that exists on disk but fails to open as unreadable, not missing', async () => {
+    // Its own directory, cleaned up separately from `dir`/`afterEach`: a
+    // failed better-sqlite3 open against a non-SQLite file leaves the file
+    // transiently (and, empirically, not briefly) locked on Windows, which
+    // would otherwise fail this test's own cleanup with EPERM. Isolating it
+    // means that lock can never affect any other test's fixtures.
+    const corruptHome = mkdtempSync(join(tmpdir(), 'nexusmem-open-corrupt-'));
+    const corruptDb = join(corruptHome, 'corrupt.db');
+    writeFileSync(corruptDb, 'this is not a sqlite file');
+    await recordProject({ projectId: 'proj-corrupt', root: join(corruptHome, 'corrupt'), dbPath: corruptDb, originUrl: null });
+
+    const opened = await openAllProjectSources({
+      projectId: 'proj-current',
+      root: join(dir, 'current'),
+      dbPath: join(dir, 'current.db'),
+    });
+
+    try {
+      // Discriminating: existsSync(corruptDb) is true, so a broken unreadable
+      // check would silently drop it into `missing` (or nowhere) instead.
+      expect(opened.missing).toEqual([]);
+      expect(opened.unreadable).toHaveLength(1);
+      expect(opened.unreadable[0]!.entry.projectId).toBe('proj-corrupt');
+      expect(opened.unreadable[0]!.reason.length).toBeGreaterThan(0);
+      expect(opened.sources.map((s) => s.projectId)).toEqual(['proj-current']);
+    } finally {
+      opened.close();
+      try {
+        rmSync(corruptHome, { recursive: true, force: true });
+      } catch {
+        // See comment above -- a leaked handle on the corrupt file itself is
+        // the known, accepted cost of testing this branch on Windows.
+      }
+    }
+  });
 });
