@@ -308,6 +308,46 @@ describe('mcp server result shaping (protocol round trip)', () => {
   });
 
   /**
+   * Same shape as the search_memory regression above, for list_recent_memory:
+   * `server.ts` wraps it in `structuredContent: { items: result.items }`
+   * separately from `content[0].text`, and tests/mcp.test.ts's other
+   * list_recent_memory cases call `listRecentMemory` from tools.ts directly --
+   * never through the real registered tool, so this specific wrapping had no
+   * protocol-level coverage.
+   */
+  it('list_recent_memory exposes its items in content AND structuredContent', async () => {
+    await syncProject({ projectRoot: repoDir, noEmbed: true });
+
+    const server = createServer();
+    const client = new Client({ name: 'test-client', version: '0.0.0' });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+
+    try {
+      const result = (await client.callTool({
+        name: 'list_recent_memory',
+        arguments: { projectRoot: repoDir },
+      })) as {
+        content: Array<{ type: string; text: string }>;
+        structuredContent?: { items?: unknown[] };
+        isError?: boolean;
+      };
+
+      expect(result.isError).toBeFalsy();
+
+      const parsed = JSON.parse(result.content[0]?.text ?? '[]');
+      expect(Array.isArray(parsed)).toBe(true);
+      expect(parsed.length).toBeGreaterThan(0);
+
+      expect(result.structuredContent?.items).toBeDefined();
+      expect(result.structuredContent?.items).toEqual(parsed);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  /**
    * Tool descriptions enumerate the sources NexusMem indexes, and that list is
    * the only thing a model reads when deciding whether this tool can answer a
    * question. It had already gone stale: the docs collector shipped in
