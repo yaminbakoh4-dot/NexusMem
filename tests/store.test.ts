@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { MemoryNode } from '../src/core/types.js';
 import { MemoryStore } from '../src/store/store.js';
 import { currentSchemaVersion, LATEST_SCHEMA_VERSION } from '../src/store/schema.js';
-import { toMatchQuery } from '../src/store/fts.js';
+import { significantTokens, toMatchQuery, toStrictMatchQuery } from '../src/store/fts.js';
 import { insertDenyListEntry } from '../src/store/deny-list.js';
 
 const PROJECT = 'proj-a';
@@ -624,5 +624,44 @@ describe('toMatchQuery', () => {
 
   it('keeps "id" when it is the only token, rather than matching nothing', () => {
     expect(toMatchQuery('id')).toBe('"id"*');
+  });
+});
+
+describe('toStrictMatchQuery', () => {
+  it('same tokenization as toMatchQuery, but AND-ed instead of OR-ed', () => {
+    expect(toStrictMatchQuery('refresh token')).toBe('"refresh"* AND "token"*');
+  });
+
+  it('strips FTS5 operators out of user text, same as toMatchQuery', () => {
+    expect(toStrictMatchQuery('NEAR("a" b)')).toBe('"NEAR"* AND "a"* AND "b"*');
+  });
+
+  it('returns null when nothing searchable is left', () => {
+    expect(toStrictMatchQuery('   ')).toBeNull();
+    expect(toStrictMatchQuery('*(){}')).toBeNull();
+  });
+
+  it('drops the generic token "id" when other signal survives', () => {
+    expect(toStrictMatchQuery('sender id')).toBe('"sender"*');
+  });
+
+  it('keeps "id" when it is the only token, rather than matching nothing', () => {
+    expect(toStrictMatchQuery('id')).toBe('"id"*');
+  });
+});
+
+describe('significantTokens', () => {
+  it('splits on whitespace after stripping FTS5 syntax characters', () => {
+    expect(significantTokens('NEAR("a" b)')).toEqual(['NEAR', 'a', 'b']);
+  });
+
+  it('is the shared tokenization behind both toMatchQuery and toStrictMatchQuery', () => {
+    const tokens = significantTokens('sender id');
+    expect(tokens).toEqual(['sender']); // "id" already dropped here, not just at the join step
+  });
+
+  it('returns an empty array for input with no searchable text', () => {
+    expect(significantTokens('   ')).toEqual([]);
+    expect(significantTokens('*(){}')).toEqual([]);
   });
 });
