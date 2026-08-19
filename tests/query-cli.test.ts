@@ -25,6 +25,16 @@ const GIT_ENV = {
   GIT_COMMITTER_EMAIL: 't@example.com',
 };
 
+// picocolors wraps individual words in escape codes (e.g. pc.dim('matched')
+// leaves an ANSI reset before " 1 bm25"), so a regex spanning a color
+// boundary can fail even though the words are adjacent on screen -- only
+// shows up where CI forces color on and a local dev run doesn't. See
+// tests/forget.test.ts's own copy of this helper.
+function stripAnsi(text: string): string {
+  // eslint-disable-next-line no-control-regex
+  return text.replace(/\x1b\[[0-9;]*m/g, '');
+}
+
 let dir: string;
 let stdout: string[];
 let stderr: string[];
@@ -93,8 +103,8 @@ describe('nexusmem query', () => {
     const code = await runQuery({ cwd: dir, query: 'ranker cap joint priors', budget: 2000, candidates: 30, noVector: true, json: false });
 
     expect(code).toBe(0);
-    expect(stderr.join('')).toMatch(/matched \d+ bm25/);
-    expect(stderr.join('')).toMatch(/tokens\s+\d+\/2000/);
+    expect(stripAnsi(stderr.join(''))).toMatch(/matched \d+ bm25/);
+    expect(stripAnsi(stderr.join(''))).toMatch(/tokens\s+\d+\/2000/);
     expect(stdout.join('')).toContain('why does the ranker cap joint priors');
   });
 

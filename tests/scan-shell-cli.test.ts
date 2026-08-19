@@ -20,6 +20,16 @@ const GIT_ENV = {
   GIT_COMMITTER_EMAIL: 't@example.com',
 };
 
+// picocolors wraps individual words in escape codes (e.g. pc.bold(count)
+// leaves an ANSI reset before " node(s)"), so a regex spanning a color
+// boundary can fail even though the words are adjacent on screen -- only
+// shows up where CI forces color on and a local dev run doesn't. See
+// tests/forget.test.ts's own copy of this helper.
+function stripAnsi(text: string): string {
+  // eslint-disable-next-line no-control-regex
+  return text.replace(/\x1b\[[0-9;]*m/g, '');
+}
+
 let dir: string;
 let homeDir: string;
 let bashHistFile: string;
@@ -93,14 +103,14 @@ describe('nexusmem scan-shell', () => {
     writeFileSync(bashHistFile, '#1700000000\nnpm test\n');
 
     await runScanShell({ cwd: dir, tailLines: 300, minSignal: 0, json: false });
-    const unfiltered = /(\d+) node\(s\) total/.exec(stderr.join(''));
+    const unfiltered = /(\d+) node\(s\) total/.exec(stripAnsi(stderr.join('')));
     expect(unfiltered).not.toBeNull();
     expect(Number(unfiltered![1])).toBe(1);
 
     stdout = [];
     stderr = [];
     await runScanShell({ cwd: dir, tailLines: 300, minSignal: 1.1, json: false });
-    const filtered = /(\d+) node\(s\) total/.exec(stderr.join(''));
+    const filtered = /(\d+) node\(s\) total/.exec(stripAnsi(stderr.join('')));
     expect(filtered).not.toBeNull();
     expect(Number(filtered![1])).toBe(0);
   });

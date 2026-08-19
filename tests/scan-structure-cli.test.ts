@@ -15,6 +15,16 @@ const GIT_ENV = {
   GIT_COMMITTER_EMAIL: 't@example.com',
 };
 
+// picocolors wraps individual words in escape codes (e.g. pc.bold(edges.length)
+// leaves an ANSI reset before " edge(s)"), so a literal/regex match spanning a
+// color boundary can fail even though the words are adjacent on screen -- only
+// shows up where CI forces color on and a local dev run doesn't. See
+// tests/forget.test.ts's own copy of this helper.
+function stripAnsi(text: string): string {
+  // eslint-disable-next-line no-control-regex
+  return text.replace(/\x1b\[[0-9;]*m/g, '');
+}
+
 let dir: string;
 let stdout: string[];
 let stderr: string[];
@@ -53,7 +63,7 @@ describe('nexusmem scan-structure', () => {
     expect(stdout.join('')).toContain('a.ts');
     expect(stdout.join('')).toContain('->');
     expect(stdout.join('')).toContain('b.ts');
-    expect(stderr.join('')).toMatch(/1 edge\(s\) from 2 tracked/);
+    expect(stripAnsi(stderr.join(''))).toMatch(/1 edge\(s\) from 2 tracked/);
   });
 
   it('--json emits an array of file edges', async () => {

@@ -25,6 +25,16 @@ const GIT_ENV = {
   GIT_COMMITTER_EMAIL: 't@example.com',
 };
 
+// picocolors wraps individual words in escape codes, so a literal substring
+// or regex match against adjacent words (e.g. "git" padding next to a
+// separately pc.dim-wrapped "last run") can fail even though they're
+// adjacent on screen. Only shows up where CI forces color on and a local
+// dev run doesn't -- see tests/forget.test.ts's own copy of this helper.
+function stripAnsi(text: string): string {
+  // eslint-disable-next-line no-control-regex
+  return text.replace(/\x1b\[[0-9;]*m/g, '');
+}
+
 let dir: string;
 
 beforeEach(() => {
@@ -44,7 +54,7 @@ afterEach(() => {
 async function statusOutput(): Promise<string> {
   const chunks: string[] = [];
   await runStatus({ cwd: dir, out: (chunk) => chunks.push(chunk) });
-  return chunks.join('');
+  return stripAnsi(chunks.join(''));
 }
 
 describe('status report body', () => {
