@@ -59,6 +59,19 @@ describe('resolveSpecifier', () => {
   it('returns null when nothing in the tracked set matches', () => {
     expect(resolveSpecifier('src/entry.ts', './missing.js', tracked)).toBeNull();
   });
+
+  it('rewrites .mjs to .mts and .cjs to .cts, not just .js/.jsx', () => {
+    const esmTracked = new Set(['src/a.mts', 'src/b.cts']);
+    expect(resolveSpecifier('src/entry.ts', './a.mjs', esmTracked)).toBe('src/a.mts');
+    expect(resolveSpecifier('src/entry.ts', './b.cjs', esmTracked)).toBe('src/b.cts');
+  });
+
+  it('returns null for a real, non-rewritable extension that is not tracked, rather than guessing', () => {
+    // Discriminating from the "extensionless" branch below it: .css has an
+    // extension, so this must short-circuit at the ext-but-not-rewritable
+    // check rather than falling through to try appending .ts/.tsx/etc.
+    expect(resolveSpecifier('src/entry.ts', './missing.css', tracked)).toBeNull();
+  });
 });
 
 const GIT_ENV = {
