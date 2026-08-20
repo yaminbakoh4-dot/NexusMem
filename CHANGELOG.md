@@ -17,6 +17,9 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
 - `nexusmem stale`: lists aging `inferred` nodes nothing has superseded yet, as candidates for
   `mark-stale`. A heuristic on age and provenance, not real contradiction detection — writes nothing.
 - `nexusmem status` now surfaces an `aging` line with the stale-candidate count when any exist.
+- Import graph: Python relative imports (`from .foo import bar`, `from . import x`) now produce
+  file edges too, alongside the existing JS/TS support. Absolute Python imports are still skipped —
+  same "missed edge over wrong edge" reasoning as JS/TS's bare-specifier skip.
 
 ## [0.5.4] — 2026-08-20
 

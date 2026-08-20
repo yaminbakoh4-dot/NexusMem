@@ -25,7 +25,7 @@ export async function runScanStructure(opts: ScanStructureOptions): Promise<numb
   }
 
   process.stderr.write(
-    `\n${pc.bold(String(edges.length))} edge(s) from ${filesScanned} tracked .ts/.tsx/.js/.jsx file(s)\n`,
+    `\n${pc.bold(String(edges.length))} edge(s) from ${filesScanned} tracked .ts/.tsx/.js/.jsx/.py file(s)\n`,
   );
 
   return 0;

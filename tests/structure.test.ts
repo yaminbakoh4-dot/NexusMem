@@ -3,7 +3,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { extractImportSpecifiers } from '../src/structure/extract.js';
+import { extractPythonImportSpecifiers } from '../src/structure/extract-python.js';
 import { resolveSpecifier } from '../src/structure/resolve.js';
+import { resolvePythonSpecifier } from '../src/structure/resolve-python.js';
 import { collectFileEdges } from '../src/structure/collect.js';
 import { gitFixture } from './helpers.js';
 
@@ -74,6 +76,61 @@ describe('resolveSpecifier', () => {
   });
 });
 
+describe('extractPythonImportSpecifiers', () => {
+  it('extracts a module-level relative import and a from-import', () => {
+    const source = ['import os', 'from .utils import helper', 'from ..pkg.sub import thing'].join('\n');
+    expect(extractPythonImportSpecifiers(source).sort()).toEqual(['..pkg.sub', '.utils'].sort());
+  });
+
+  it('extracts each name from a bare "from . import x, y as z" as its own candidate', () => {
+    expect(extractPythonImportSpecifiers('from . import x, y as z')).toEqual(['.x', '.y']);
+  });
+
+  it('drops an absolute import -- could be stdlib, third-party, or this project, not distinguishable from text', () => {
+    expect(extractPythonImportSpecifiers('import numpy as np\nfrom numpy import array\n')).toEqual([]);
+  });
+
+  it('ignores a bare "*" in "from . import *"', () => {
+    expect(extractPythonImportSpecifiers('from . import *')).toEqual([]);
+  });
+
+  it('deduplicates repeated specifiers', () => {
+    expect(extractPythonImportSpecifiers('from .a import x\nfrom .a import y\n')).toEqual(['.a']);
+  });
+
+  it('strips a trailing comment from a bare import list', () => {
+    expect(extractPythonImportSpecifiers('from . import x  # noqa')).toEqual(['.x']);
+  });
+});
+
+describe('resolvePythonSpecifier', () => {
+  const tracked = new Set(['pkg/a.py', 'pkg/sub/b.py', 'pkg/sub/__init__.py', 'pkg/data.json']);
+
+  it('resolves a single-dot specifier to a sibling module', () => {
+    expect(resolvePythonSpecifier('pkg/entry.py', '.a', tracked)).toBe('pkg/a.py');
+  });
+
+  it('resolves a dotted single-dot specifier into a subpackage module', () => {
+    expect(resolvePythonSpecifier('pkg/entry.py', '.sub.b', tracked)).toBe('pkg/sub/b.py');
+  });
+
+  it('resolves a package specifier to its __init__.py when there is no matching plain module', () => {
+    expect(resolvePythonSpecifier('pkg/entry.py', '.sub', tracked)).toBe('pkg/sub/__init__.py');
+  });
+
+  it('resolves a double-dot specifier one directory further up', () => {
+    expect(resolvePythonSpecifier('pkg/sub/mod.py', '..a', tracked)).toBe('pkg/a.py');
+  });
+
+  it('returns null when nothing in the tracked set matches, rather than guessing', () => {
+    expect(resolvePythonSpecifier('pkg/entry.py', '.missing', tracked)).toBeNull();
+  });
+
+  it('returns null for a specifier with no dots', () => {
+    expect(resolvePythonSpecifier('pkg/entry.py', 'a', tracked)).toBeNull();
+  });
+});
+
 const GIT_ENV = {
   ...process.env,
   GIT_AUTHOR_NAME: 'T',
@@ -101,5 +158,23 @@ describe('collectFileEdges', () => {
     expect(filesScanned).toBe(2); // README.md is not a tracked JS/TS pathspec
     expect(unreadable).toEqual([]);
     expect(edges).toEqual([{ fromPath: 'src/a.ts', toPath: 'src/b.ts', kind: 'import' }]);
+  });
+
+  it('also walks tracked Python files and resolves real relative-import edges', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'nexusmem-structure-py-'));
+    const g = (...args: string[]) => gitFixture(dir, args, { env: GIT_ENV });
+    g('init', '-q', '-b', 'main');
+
+    mkdirSync(join(dir, 'pkg'), { recursive: true });
+    writeFileSync(join(dir, 'pkg', 'main.py'), 'import os\nfrom .helper import run\n');
+    writeFileSync(join(dir, 'pkg', 'helper.py'), 'def run():\n    pass\n');
+
+    g('add', '.');
+    g('commit', '-q', '-m', 'chore: initial commit');
+
+    const { edges, filesScanned } = await collectFileEdges(dir);
+
+    expect(filesScanned).toBe(2);
+    expect(edges).toEqual([{ fromPath: 'pkg/main.py', toPath: 'pkg/helper.py', kind: 'import' }]);
   });
 });
