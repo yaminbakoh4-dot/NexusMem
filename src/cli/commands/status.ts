@@ -1,14 +1,50 @@
+import { basename } from 'node:path';
 import { statSync } from 'node:fs';
 import pc from 'picocolors';
-import { getChainStats } from '../../correlate/failure-fix.js';
+import { getChainStats, type ChainStats } from '../../correlate/failure-fix.js';
 import { MemoryStore } from '../../store/store.js';
 import { currentSchemaVersion, LATEST_SCHEMA_VERSION } from '../../store/schema.js';
 import { loadContext } from '../context.js';
+import type { RepoInfo } from '../../git/repo.js';
+import type { StoreStats } from '../../store/store.js';
 
 export interface StatusOptions {
   cwd: string;
   /** Where the status report goes. Defaults to real stdout for the CLI. */
   out?: (chunk: string) => void;
+  /** Print a plain-text, no-ANSI summary meant to be copy-pasted onto X/Reddit/etc. */
+  share?: boolean;
+}
+
+function daySpan(oldest: string, newest: string): number {
+  const oldestDay = Date.parse(oldest.slice(0, 10));
+  const newestDay = Date.parse(newest.slice(0, 10));
+  return Math.round((newestDay - oldestDay) / 86_400_000) + 1;
+}
+
+function buildShareText(repo: RepoInfo, stats: StoreStats, chains: ChainStats): string {
+  if (stats.total === 0) {
+    return 'Nothing synced yet in this repo -- run `nexusmem sync` first, then `nexusmem status --share`.\n';
+  }
+
+  const days = daySpan(stats.oldest ?? stats.newest ?? '', stats.newest ?? stats.oldest ?? '');
+  const commits = stats.byKind.git_commit ?? 0;
+  const shellCommands = stats.byKind.shell_command ?? 0;
+  const docs = stats.byKind.doc_section ?? 0;
+  const parts = [`${commits} commit(s)`, `${shellCommands} shell command(s)`, `${docs} doc section(s)`].filter(
+    (p) => !p.startsWith('0 '),
+  );
+
+  const lines = [
+    `NexusMem has been watching ${basename(repo.root)} for ${days} day(s):`,
+    `  ${stats.total} memories${parts.length ? ` (${parts.join(', ')})` : ''}`,
+  ];
+  if (chains.failuresTotal) {
+    lines.push(`  ${chains.resolvedTotal}/${chains.failuresTotal} failure -> fix chain(s) linked`);
+  }
+  lines.push('', 'Local-only SQLite, no cloud, no telemetry.', 'https://github.com/yaminbkk/NexusMem');
+
+  return lines.join('\n').concat('\n');
 }
 
 function humanBytes(bytes: number): string {
@@ -32,10 +68,16 @@ export async function runStatus(opts: StatusOptions): Promise<number> {
 
   try {
     const stats = store.stats(projectId);
+    const chains = getChainStats(store, projectId);
+
+    if (opts.share) {
+      out(buildShareText(repo, stats, chains));
+      return 0;
+    }
+
     const sources = store.listSyncState(projectId);
     const gitCursor = sources.find((s) => s.source === 'git')?.cursor ?? null;
     const schema = currentSchemaVersion(store.raw);
-    const chains = getChainStats(store, projectId);
     const otherProjectIds = store.listOtherProjectIds(projectId);
     const otherProjectNodes = store.countProjectNodes(otherProjectIds);
     const structure = store.fileEdgeStats(projectId);

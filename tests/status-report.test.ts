@@ -51,9 +51,9 @@ afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-async function statusOutput(): Promise<string> {
+async function statusOutput(share = false): Promise<string> {
   const chunks: string[] = [];
-  await runStatus({ cwd: dir, out: (chunk) => chunks.push(chunk) });
+  await runStatus({ cwd: dir, share, out: (chunk) => chunks.push(chunk) });
   return stripAnsi(chunks.join(''));
 }
 
@@ -91,5 +91,43 @@ describe('status report body', () => {
     const output = await statusOutput();
     expect(output).toContain('git behind HEAD');
     expect(output).toContain('nexusmem sync');
+  });
+});
+
+describe('status --share', () => {
+  it('tells the user to sync first when nothing has been synced yet', async () => {
+    await runInit({ cwd: dir, force: false, hook: false, enableConversation: false, out: () => {} });
+
+    const output = await statusOutput(true);
+    expect(output).toContain('nexusmem sync');
+    expect(output).not.toContain('memories');
+  });
+
+  it('renders a plain-text, no-ANSI summary with real node/chain counts after a sync', async () => {
+    await runInit({ cwd: dir, force: false, hook: false, enableConversation: false, out: () => {} });
+    await runSync({ cwd: dir, full: true, rebuild: false, noEmbed: true, quiet: true, out: () => {} });
+
+    const chunks: string[] = [];
+    await runStatus({ cwd: dir, share: true, out: (chunk) => chunks.push(chunk) });
+    const raw = chunks.join('');
+
+    // No ANSI escape codes at all -- this text is meant to be pasted as-is.
+    // eslint-disable-next-line no-control-regex
+    expect(raw).not.toMatch(/\x1b\[/);
+    expect(raw).toMatch(/\d+ memories/);
+    expect(raw).toContain('1 commit(s)');
+    expect(raw).toContain('no cloud, no telemetry');
+    expect(raw).toContain('github.com/yaminbkk/NexusMem');
+    // The full status report's own sections should not leak into share mode.
+    expect(raw).not.toContain('sources');
+    expect(raw).not.toContain('schema');
+  });
+
+  it('omits the chains line when no failures have been recorded', async () => {
+    await runInit({ cwd: dir, force: false, hook: false, enableConversation: false, out: () => {} });
+    await runSync({ cwd: dir, full: true, rebuild: false, noEmbed: true, quiet: true, out: () => {} });
+
+    const output = await statusOutput(true);
+    expect(output).not.toContain('failure -> fix');
   });
 });

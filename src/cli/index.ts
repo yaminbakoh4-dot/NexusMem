@@ -175,7 +175,8 @@ program
   .command('status')
   .description('Show what is currently remembered for this repository')
   .option('-C, --cwd <path>', 'repository path', process.cwd())
-  .action((options) => guard(() => runStatus({ cwd: options.cwd }))());
+  .option('--share', 'print a plain-text summary formatted for sharing, e.g. on X or Reddit')
+  .action((options) => guard(() => runStatus({ cwd: options.cwd, share: options.share }))());
 
 program
   .command('query')
