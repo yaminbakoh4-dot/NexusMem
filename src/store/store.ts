@@ -21,6 +21,7 @@ import {
   countSourceNodes,
   getNodeMeta,
   getNodeProjectId,
+  countStaleCandidates,
   getNodesByIds,
   getSupersededIds,
   listRecentNodes,
@@ -311,6 +312,11 @@ export class MemoryStore {
   /** Aging `inferred` nodes nothing supersedes yet -- candidates for `nexusmem mark-stale`, not auto-applied. */
   listStaleCandidates(projectId: string, opts: { now?: Date; minAgeDays?: number; limit?: number } = {}): StaleCandidate[] {
     return listStaleCandidates(this.db, projectId, opts);
+  }
+
+  /** Same criteria as `listStaleCandidates`, but just the count -- for `status`'s summary line. */
+  countStaleCandidates(projectId: string, opts: { now?: Date; minAgeDays?: number } = {}): number {
+    return countStaleCandidates(this.db, projectId, opts);
   }
 
   /** Escape hatch for tests and future modules. */

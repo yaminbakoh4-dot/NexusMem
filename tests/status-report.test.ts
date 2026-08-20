@@ -5,7 +5,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runInit } from '../src/cli/commands/init.js';
 import { runStatus } from '../src/cli/commands/status.js';
 import { runSync } from '../src/cli/commands/sync.js';
+import { loadContext } from '../src/cli/context.js';
 import { LATEST_SCHEMA_VERSION } from '../src/store/schema.js';
+import { MemoryStore } from '../src/store/store.js';
 import { gitFixture } from './helpers.js';
 
 /**
@@ -91,6 +93,33 @@ describe('status report body', () => {
     const output = await statusOutput();
     expect(output).toContain('git behind HEAD');
     expect(output).toContain('nexusmem sync');
+  });
+
+  it('surfaces the aging line once an inferred node clears the stale threshold', async () => {
+    await runInit({ cwd: dir, force: false, hook: false, enableConversation: false, out: () => {} });
+    await runSync({ cwd: dir, full: true, rebuild: false, noEmbed: true, quiet: true, out: () => {} });
+
+    const { ws, projectId } = await loadContext(dir);
+    const store = MemoryStore.open(ws.dbPath);
+    store.upsertNodes([
+      {
+        id: 'old-summary',
+        kind: 'session_summary',
+        projectId,
+        ts: new Date(Date.now() - 100 * 86_400_000).toISOString(),
+        source: 'conversation:claude-code',
+        title: 'an old session summary',
+        body: 'an old session summary',
+        files: [],
+        signal: 0.5,
+        meta: {},
+      },
+    ]);
+    store.close();
+
+    const output = await statusOutput();
+    expect(output).toMatch(/aging\s+1 inferred node\(s\) worth a look/);
+    expect(output).toContain('nexusmem stale');
   });
 });
 

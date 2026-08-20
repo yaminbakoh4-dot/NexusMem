@@ -335,3 +335,19 @@ export function listStaleCandidates(
     ageDays: Math.round((now.getTime() - r.tsEpoch) / 86_400_000),
   }));
 }
+
+/** Same criteria as {@link listStaleCandidates}, but just the count -- for `status`'s summary line. */
+export function countStaleCandidates(db: Database, projectId: string, opts: { now?: Date; minAgeDays?: number } = {}): number {
+  const now = opts.now ?? new Date();
+  const minAgeDays = opts.minAgeDays ?? 45;
+  const cutoff = now.getTime() - minAgeDays * 86_400_000;
+
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS count FROM nodes
+       WHERE project_id = @projectId AND provenance = 'inferred' AND ts_epoch < @cutoff
+         AND id NOT IN (SELECT supersedes FROM nodes WHERE project_id = @projectId AND supersedes IS NOT NULL)`,
+    )
+    .get({ projectId, cutoff }) as { count: number };
+  return row.count;
+}

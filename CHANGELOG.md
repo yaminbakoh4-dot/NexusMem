@@ -16,6 +16,7 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
   optimum — see `INFERRED_HALF_LIFE_RATIO` in `src/retrieval/rank.ts`.
 - `nexusmem stale`: lists aging `inferred` nodes nothing has superseded yet, as candidates for
   `mark-stale`. A heuristic on age and provenance, not real contradiction detection — writes nothing.
+- `nexusmem status` now surfaces an `aging` line with the stale-candidate count when any exist.
 
 ## [0.5.4] — 2026-08-20
 
