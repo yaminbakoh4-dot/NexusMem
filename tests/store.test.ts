@@ -211,6 +211,70 @@ describe('MemoryStore supersedes (mark-stale)', () => {
   });
 });
 
+describe('MemoryStore.listStaleCandidates', () => {
+  let dir: string;
+  let store: MemoryStore;
+  const NOW = new Date('2026-08-20T00:00:00Z');
+  const old = new Date(NOW.getTime() - 90 * 86_400_000).toISOString();
+  const recent = new Date(NOW.getTime() - 5 * 86_400_000).toISOString();
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'nexusmem-'));
+    store = MemoryStore.open(join(dir, 'memory.db'));
+  });
+
+  afterEach(() => {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('surfaces an old inferred node but not an old observed one or a recent inferred one', () => {
+    store.upsertNodes([
+      node({ id: 'old-inferred', kind: 'session_summary', ts: old }),
+      node({ id: 'old-observed', kind: 'git_commit', ts: old }),
+      node({ id: 'recent-inferred', kind: 'session_summary', ts: recent }),
+    ]);
+
+    const candidates = store.listStaleCandidates(PROJECT, { now: NOW, minAgeDays: 45 });
+
+    expect(candidates.map((c) => c.id)).toEqual(['old-inferred']);
+    expect(candidates[0]!.ageDays).toBe(90);
+  });
+
+  it('excludes a node that is already superseded -- it is already known-stale', () => {
+    store.upsertNodes([
+      node({ id: 'old-inferred', kind: 'session_summary', ts: old }),
+      node({ id: 'replacement', kind: 'session_summary', ts: recent }),
+    ]);
+    store.setSupersedes('replacement', 'old-inferred');
+
+    expect(store.listStaleCandidates(PROJECT, { now: NOW, minAgeDays: 45 })).toEqual([]);
+  });
+
+  it('orders oldest first and respects limit', () => {
+    store.upsertNodes([
+      node({ id: 'a', kind: 'session_summary', ts: old }),
+      node({ id: 'b', kind: 'session_summary', ts: new Date(NOW.getTime() - 200 * 86_400_000).toISOString() }),
+    ]);
+
+    const all = store.listStaleCandidates(PROJECT, { now: NOW, minAgeDays: 45 });
+    expect(all.map((c) => c.id)).toEqual(['b', 'a']);
+
+    const limited = store.listStaleCandidates(PROJECT, { now: NOW, minAgeDays: 45, limit: 1 });
+    expect(limited.map((c) => c.id)).toEqual(['b']);
+  });
+
+  it('is scoped to one project', () => {
+    store.upsertNodes([
+      node({ id: 'a', kind: 'session_summary', ts: old }),
+      node({ id: 'b', kind: 'session_summary', ts: old, projectId: 'proj-b' }),
+    ]);
+
+    expect(store.listStaleCandidates(PROJECT, { now: NOW, minAgeDays: 45 }).map((c) => c.id)).toEqual(['a']);
+    expect(store.listStaleCandidates('proj-b', { now: NOW, minAgeDays: 45 }).map((c) => c.id)).toEqual(['b']);
+  });
+});
+
 describe('MemoryStore.search', () => {
   let dir: string;
   let store: MemoryStore;

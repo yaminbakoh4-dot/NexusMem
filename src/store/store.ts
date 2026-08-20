@@ -24,12 +24,14 @@ import {
   getNodesByIds,
   getSupersededIds,
   listRecentNodes,
+  listStaleCandidates,
   pruneSourceNodes,
   setSupersedes,
   upsertNodes,
   type IngestStats,
   type LinkedNode,
   type RecentNode,
+  type StaleCandidate,
 } from './nodes.js';
 import { getLinkedNodeIds, linkNodes } from './links.js';
 import {
@@ -57,7 +59,7 @@ import { search, stats, type SearchHit, type StoreStats } from './search.js';
 import { getMeta, setMeta } from './meta.js';
 
 export type { ProjectRecord } from './projects.js';
-export type { IngestStats, LinkedNode, RecentNode } from './nodes.js';
+export type { IngestStats, LinkedNode, RecentNode, StaleCandidate } from './nodes.js';
 export type { ForgetPreview, ForgetResult, ImportDenyListResult, ImportPreviewItem } from './forget.js';
 export type { EmbeddableNode, VectorHit } from './embeddings.js';
 export type { SearchHit, StoreStats } from './search.js';
@@ -304,6 +306,11 @@ export class MemoryStore {
   /** Record that `newNodeId` supersedes `staleNodeId` -- the write behind `nexusmem mark-stale`. Caller validates both ids first. */
   setSupersedes(newNodeId: string, staleNodeId: string): void {
     setSupersedes(this.db, newNodeId, staleNodeId);
+  }
+
+  /** Aging `inferred` nodes nothing supersedes yet -- candidates for `nexusmem mark-stale`, not auto-applied. */
+  listStaleCandidates(projectId: string, opts: { now?: Date; minAgeDays?: number; limit?: number } = {}): StaleCandidate[] {
+    return listStaleCandidates(this.db, projectId, opts);
   }
 
   /** Escape hatch for tests and future modules. */

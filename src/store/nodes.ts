@@ -283,3 +283,55 @@ export function getSupersededIds(db: Database, projectId: string): Set<string> {
 export function setSupersedes(db: Database, newNodeId: string, staleNodeId: string): void {
   db.prepare('UPDATE nodes SET supersedes = ? WHERE id = ?').run(staleNodeId, newNodeId);
 }
+
+/** An `inferred` node old enough to be a candidate for `nexusmem mark-stale`, oldest first. */
+export interface StaleCandidate {
+  id: string;
+  kind: NodeKind;
+  ts: string;
+  source: string;
+  title: string;
+  ageDays: number;
+}
+
+/**
+ * Heuristic surfacing only, not contradiction detection: every `inferred`
+ * node past `minAgeDays` that nothing already supersedes. A human still
+ * decides whether it's actually stale and runs `mark-stale` themselves.
+ */
+export function listStaleCandidates(
+  db: Database,
+  projectId: string,
+  opts: { now?: Date; minAgeDays?: number; limit?: number } = {},
+): StaleCandidate[] {
+  const now = opts.now ?? new Date();
+  const minAgeDays = opts.minAgeDays ?? 45;
+  const cutoff = now.getTime() - minAgeDays * 86_400_000;
+
+  const rows = db
+    .prepare(
+      `SELECT id, kind, ts, ts_epoch AS tsEpoch, source, title
+       FROM nodes
+       WHERE project_id = @projectId AND provenance = 'inferred' AND ts_epoch < @cutoff
+         AND id NOT IN (SELECT supersedes FROM nodes WHERE project_id = @projectId AND supersedes IS NOT NULL)
+       ORDER BY ts_epoch ASC
+       LIMIT @limit`,
+    )
+    .all({ projectId, cutoff, limit: opts.limit ?? 50 }) as Array<{
+    id: string;
+    kind: NodeKind;
+    ts: string;
+    tsEpoch: number;
+    source: string;
+    title: string;
+  }>;
+
+  return rows.map((r) => ({
+    id: r.id,
+    kind: r.kind,
+    ts: r.ts,
+    source: r.source,
+    title: r.title,
+    ageDays: Math.round((now.getTime() - r.tsEpoch) / 86_400_000),
+  }));
+}
