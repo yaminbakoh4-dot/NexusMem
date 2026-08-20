@@ -9,6 +9,11 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
 
 ## [Unreleased]
 
+### Added
+
+- `nexusmem status --share`: a plain-text, no-color summary (node count, failure→fix chains
+  linked, days of history) meant to be pasted somewhere, not scraped by a script.
+
 ## [0.5.3] — 2026-08-19
 
 No functional changes to the CLI, MCP server, or published package -- a test-coverage and
