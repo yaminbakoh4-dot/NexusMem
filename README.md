@@ -351,8 +351,9 @@ problem.
 
 ## Commands
 
-`init`, `sync`, `query <text>`, `status`, `projects`, `mcp`, `forget <value>`,
-`mark-stale <nodeId> --supersedes <newNodeId>`, and `hook install|remove|status`.
+`init`, `sync`, `query <text>`, `status` (add `--share` for a plain-text summary worth pasting
+somewhere), `projects`, `mcp`, `forget <value>`, `mark-stale <nodeId> --supersedes <newNodeId>`,
+and `hook install|remove|status`.
 
 There are also five dry-run previews (`scan-git`, `scan-diff`, `scan-shell`, `scan-docs`,
 `scan-conversation`)
