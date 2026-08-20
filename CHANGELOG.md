@@ -20,6 +20,10 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
 - Import graph: Python relative imports (`from .foo import bar`, `from . import x`) now produce
   file edges too, alongside the existing JS/TS support. Absolute Python imports are still skipped —
   same "missed edge over wrong edge" reasoning as JS/TS's bare-specifier skip.
+- Import graph: Go internal imports (resolved against `go.mod`'s module path, one edge per
+  non-test file in the imported package) and Rust `mod foo;` declarations (2018+ edition module
+  layout) now produce file edges too. External Go imports and Rust `use` paths are out of scope for
+  the same reason.
 
 ## [0.5.4] — 2026-08-20
 

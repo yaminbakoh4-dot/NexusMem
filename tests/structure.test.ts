@@ -3,9 +3,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { extractImportSpecifiers } from '../src/structure/extract.js';
+import { extractGoImportSpecifiers } from '../src/structure/extract-go.js';
 import { extractPythonImportSpecifiers } from '../src/structure/extract-python.js';
+import { extractRustModSpecifiers } from '../src/structure/extract-rust.js';
 import { resolveSpecifier } from '../src/structure/resolve.js';
+import { parseGoModulePath, resolveGoSpecifier } from '../src/structure/resolve-go.js';
 import { resolvePythonSpecifier } from '../src/structure/resolve-python.js';
+import { resolveRustModSpecifier } from '../src/structure/resolve-rust.js';
 import { collectFileEdges } from '../src/structure/collect.js';
 import { gitFixture } from './helpers.js';
 
@@ -131,6 +135,96 @@ describe('resolvePythonSpecifier', () => {
   });
 });
 
+describe('extractGoImportSpecifiers', () => {
+  it('extracts a single-line import', () => {
+    expect(extractGoImportSpecifiers('import "fmt"')).toEqual(['fmt']);
+  });
+
+  it('extracts every path in a grouped import block, stripping aliases, blank identifier and dot imports', () => {
+    const source = ['import (', '\t"fmt"', '\talias "acme/internal/util"', '\t_ "acme/plugin"', '\t. "acme/dot"', ')'].join(
+      '\n',
+    );
+    expect(extractGoImportSpecifiers(source).sort()).toEqual(['acme/dot', 'acme/internal/util', 'acme/plugin', 'fmt'].sort());
+  });
+
+  it('does not double-count a single-line import as also matching the block form', () => {
+    expect(extractGoImportSpecifiers('import "fmt"\nimport "os"\n')).toEqual(['fmt', 'os']);
+  });
+
+  it('deduplicates repeated paths', () => {
+    expect(extractGoImportSpecifiers('import "fmt"\nimport (\n\t"fmt"\n)\n')).toEqual(['fmt']);
+  });
+});
+
+describe('parseGoModulePath / resolveGoSpecifier', () => {
+  it('parses the module line from a real go.mod', () => {
+    expect(parseGoModulePath('module acme/widget\n\ngo 1.22\n')).toBe('acme/widget');
+  });
+
+  it('returns null when there is no module line', () => {
+    expect(parseGoModulePath('go 1.22\n')).toBeNull();
+  });
+
+  const tracked = new Set(['internal/util/a.go', 'internal/util/b.go', 'internal/util/b_test.go', 'main.go', 'cmd/root.go']);
+
+  it('resolves every non-test .go file in the imported package directory', () => {
+    expect(resolveGoSpecifier('acme/widget', 'acme/widget/internal/util', tracked)).toEqual([
+      'internal/util/a.go',
+      'internal/util/b.go',
+    ]);
+  });
+
+  it('resolves the module root itself to root-level .go files', () => {
+    expect(resolveGoSpecifier('acme/widget', 'acme/widget', tracked)).toEqual(['main.go']);
+  });
+
+  it('returns [] for an external import outside this module', () => {
+    expect(resolveGoSpecifier('acme/widget', 'github.com/other/pkg', tracked)).toEqual([]);
+  });
+
+  it('returns [] for the standard library', () => {
+    expect(resolveGoSpecifier('acme/widget', 'fmt', tracked)).toEqual([]);
+  });
+});
+
+describe('extractRustModSpecifiers', () => {
+  it('extracts a plain mod declaration', () => {
+    expect(extractRustModSpecifiers('mod foo;')).toEqual(['foo']);
+  });
+
+  it('extracts a pub mod declaration', () => {
+    expect(extractRustModSpecifiers('pub mod foo;\npub(crate) mod bar;')).toEqual(['foo', 'bar']);
+  });
+
+  it('ignores an inline mod block -- there is no separate file to link to', () => {
+    expect(extractRustModSpecifiers('mod foo {\n    pub fn x() {}\n}')).toEqual([]);
+  });
+
+  it('deduplicates repeated declarations', () => {
+    expect(extractRustModSpecifiers('mod foo;\nmod foo;')).toEqual(['foo']);
+  });
+});
+
+describe('resolveRustModSpecifier', () => {
+  const tracked = new Set(['src/lib.rs', 'src/foo.rs', 'src/bar/mod.rs', 'src/foo/nested.rs']);
+
+  it('resolves a sibling module from the crate root (lib.rs)', () => {
+    expect(resolveRustModSpecifier('src/lib.rs', 'foo', tracked)).toBe('src/foo.rs');
+  });
+
+  it('resolves a directory-style submodule (mod.rs) from the crate root', () => {
+    expect(resolveRustModSpecifier('src/lib.rs', 'bar', tracked)).toBe('src/bar/mod.rs');
+  });
+
+  it('resolves a non-mod.rs file\'s submodule into its same-named directory', () => {
+    expect(resolveRustModSpecifier('src/foo.rs', 'nested', tracked)).toBe('src/foo/nested.rs');
+  });
+
+  it('returns null when nothing matches', () => {
+    expect(resolveRustModSpecifier('src/lib.rs', 'missing', tracked)).toBeNull();
+  });
+});
+
 const GIT_ENV = {
   ...process.env,
   GIT_AUTHOR_NAME: 'T',
@@ -176,5 +270,47 @@ describe('collectFileEdges', () => {
 
     expect(filesScanned).toBe(2);
     expect(edges).toEqual([{ fromPath: 'pkg/main.py', toPath: 'pkg/helper.py', kind: 'import' }]);
+  });
+
+  it('resolves a Go internal import to every non-test file in the imported package', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'nexusmem-structure-go-'));
+    const g = (...args: string[]) => gitFixture(dir, args, { env: GIT_ENV });
+    g('init', '-q', '-b', 'main');
+
+    writeFileSync(join(dir, 'go.mod'), 'module acme/widget\n\ngo 1.22\n');
+    writeFileSync(join(dir, 'main.go'), 'package main\n\nimport "acme/widget/internal/util"\n\nfunc main() {}\n');
+    mkdirSync(join(dir, 'internal', 'util'), { recursive: true });
+    writeFileSync(join(dir, 'internal', 'util', 'a.go'), 'package util\n');
+    writeFileSync(join(dir, 'internal', 'util', 'b.go'), 'package util\n');
+    writeFileSync(join(dir, 'internal', 'util', 'b_test.go'), 'package util\n');
+
+    g('add', '.');
+    g('commit', '-q', '-m', 'chore: initial commit');
+
+    const { edges, filesScanned } = await collectFileEdges(dir);
+
+    expect(filesScanned).toBe(4); // go.mod is not a tracked pathspec
+    expect(edges.sort((a, b) => a.toPath.localeCompare(b.toPath))).toEqual([
+      { fromPath: 'main.go', toPath: 'internal/util/a.go', kind: 'import' },
+      { fromPath: 'main.go', toPath: 'internal/util/b.go', kind: 'import' },
+    ]);
+  });
+
+  it('resolves a Rust mod declaration to its sibling file', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'nexusmem-structure-rust-'));
+    const g = (...args: string[]) => gitFixture(dir, args, { env: GIT_ENV });
+    g('init', '-q', '-b', 'main');
+
+    mkdirSync(join(dir, 'src'), { recursive: true });
+    writeFileSync(join(dir, 'src', 'lib.rs'), 'mod util;\n');
+    writeFileSync(join(dir, 'src', 'util.rs'), 'pub fn run() {}\n');
+
+    g('add', '.');
+    g('commit', '-q', '-m', 'chore: initial commit');
+
+    const { edges, filesScanned } = await collectFileEdges(dir);
+
+    expect(filesScanned).toBe(2);
+    expect(edges).toEqual([{ fromPath: 'src/lib.rs', toPath: 'src/util.rs', kind: 'import' }]);
   });
 });
