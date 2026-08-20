@@ -9,6 +9,8 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-08-20
+
 ### Added
 
 - Ranker: `inferred` nodes (summaries, doc snapshots) now decay twice as fast as `observed` ones
@@ -449,7 +451,11 @@ First public release.
   there is no local-model summarization pass, and the conversation collector has never been audited
   for the stale-node bug that was found and fixed in the docs collector.
 
-[Unreleased]: https://github.com/yaminbkk/NexusMem/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/yaminbkk/NexusMem/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/yaminbkk/NexusMem/compare/v0.5.4...v0.6.0
+[0.5.4]: https://github.com/yaminbkk/NexusMem/compare/v0.5.3...v0.5.4
+[0.5.3]: https://github.com/yaminbkk/NexusMem/compare/v0.5.2...v0.5.3
+[0.5.2]: https://github.com/yaminbkk/NexusMem/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/yaminbkk/NexusMem/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/yaminbkk/NexusMem/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/yaminbkk/NexusMem/compare/v0.3.3...v0.4.0
