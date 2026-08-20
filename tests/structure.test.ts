@@ -4,10 +4,14 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { extractImportSpecifiers } from '../src/structure/extract.js';
 import { extractGoImportSpecifiers } from '../src/structure/extract-go.js';
+import { extractJavaImportSpecifiers } from '../src/structure/extract-java.js';
+import { extractPhpIncludeSpecifiers } from '../src/structure/extract-php.js';
 import { extractPythonImportSpecifiers } from '../src/structure/extract-python.js';
 import { extractRustModSpecifiers } from '../src/structure/extract-rust.js';
 import { resolveSpecifier } from '../src/structure/resolve.js';
 import { parseGoModulePath, resolveGoSpecifier } from '../src/structure/resolve-go.js';
+import { resolveJavaSpecifier } from '../src/structure/resolve-java.js';
+import { resolvePhpSpecifier } from '../src/structure/resolve-php.js';
 import { resolvePythonSpecifier } from '../src/structure/resolve-python.js';
 import { resolveRustModSpecifier } from '../src/structure/resolve-rust.js';
 import { collectFileEdges } from '../src/structure/collect.js';
@@ -225,6 +229,79 @@ describe('resolveRustModSpecifier', () => {
   });
 });
 
+describe('extractJavaImportSpecifiers', () => {
+  it('extracts a class import and a wildcard import', () => {
+    expect(extractJavaImportSpecifiers('import a.b.C;\nimport a.b.*;\n').sort()).toEqual(['a.b.*', 'a.b.C'].sort());
+  });
+
+  it('skips a static import', () => {
+    expect(extractJavaImportSpecifiers('import static a.b.C.member;')).toEqual([]);
+  });
+
+  it('deduplicates repeated imports', () => {
+    expect(extractJavaImportSpecifiers('import a.b.C;\nimport a.b.C;')).toEqual(['a.b.C']);
+  });
+});
+
+describe('resolveJavaSpecifier', () => {
+  const tracked = new Set(['src/main/java/a/b/C.java', 'src/main/java/a/b/D.java', 'src/main/java/a/b/other/E.java']);
+
+  it('resolves a single class import by suffix match', () => {
+    expect(resolveJavaSpecifier('a.b.C', tracked)).toEqual(['src/main/java/a/b/C.java']);
+  });
+
+  it('resolves a wildcard import to every class directly in that package, not a nested one', () => {
+    expect(resolveJavaSpecifier('a.b.*', tracked).sort()).toEqual(['src/main/java/a/b/C.java', 'src/main/java/a/b/D.java'].sort());
+  });
+
+  it('returns [] for a single-class import with no match', () => {
+    expect(resolveJavaSpecifier('a.b.Missing', tracked)).toEqual([]);
+  });
+
+  it('returns [] rather than guessing when a suffix would match more than one file', () => {
+    const ambiguous = new Set(['src/main/java/a/b/C.java', 'other-root/a/b/C.java']);
+    expect(resolveJavaSpecifier('a.b.C', ambiguous)).toEqual([]);
+  });
+});
+
+describe('extractPhpIncludeSpecifiers', () => {
+  it('extracts a __DIR__-anchored require', () => {
+    expect(extractPhpIncludeSpecifiers("require __DIR__ . '/config.php';")).toEqual(['/config.php']);
+  });
+
+  it('extracts a dirname(__FILE__)-anchored include_once with parens', () => {
+    expect(extractPhpIncludeSpecifiers("include_once(dirname(__FILE__) . '/legacy.php');")).toEqual(['/legacy.php']);
+  });
+
+  it('skips a bare unanchored require -- resolves against CWD/include_path in real PHP, not this file', () => {
+    expect(extractPhpIncludeSpecifiers("require 'config.php';")).toEqual([]);
+  });
+
+  it('deduplicates repeated specifiers', () => {
+    expect(extractPhpIncludeSpecifiers("require __DIR__ . '/a.php';\nrequire __DIR__ . '/a.php';")).toEqual(['/a.php']);
+  });
+});
+
+describe('resolvePhpSpecifier', () => {
+  const tracked = new Set(['app/config.php', 'lib/util.php']);
+
+  it('resolves a sibling file', () => {
+    expect(resolvePhpSpecifier('app/index.php', '/config.php', tracked)).toBe('app/config.php');
+  });
+
+  it('resolves an up-directory specifier', () => {
+    expect(resolvePhpSpecifier('app/index.php', '/../lib/util.php', tracked)).toBe('lib/util.php');
+  });
+
+  it('appends .php when the specifier omits it', () => {
+    expect(resolvePhpSpecifier('app/index.php', '/config', tracked)).toBe('app/config.php');
+  });
+
+  it('returns null when nothing matches', () => {
+    expect(resolvePhpSpecifier('app/index.php', '/missing.php', tracked)).toBeNull();
+  });
+});
+
 const GIT_ENV = {
   ...process.env,
   GIT_AUTHOR_NAME: 'T',
@@ -312,5 +389,45 @@ describe('collectFileEdges', () => {
 
     expect(filesScanned).toBe(2);
     expect(edges).toEqual([{ fromPath: 'src/lib.rs', toPath: 'src/util.rs', kind: 'import' }]);
+  });
+
+  it('resolves a Java class import by suffix match against the real tracked source tree', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'nexusmem-structure-java-'));
+    const g = (...args: string[]) => gitFixture(dir, args, { env: GIT_ENV });
+    g('init', '-q', '-b', 'main');
+
+    mkdirSync(join(dir, 'src', 'main', 'java', 'a', 'b'), { recursive: true });
+    writeFileSync(
+      join(dir, 'src', 'main', 'java', 'a', 'b', 'Main.java'),
+      'package a.b;\n\nimport a.b.Helper;\n\nclass Main {}\n',
+    );
+    writeFileSync(join(dir, 'src', 'main', 'java', 'a', 'b', 'Helper.java'), 'package a.b;\n\nclass Helper {}\n');
+
+    g('add', '.');
+    g('commit', '-q', '-m', 'chore: initial commit');
+
+    const { edges, filesScanned } = await collectFileEdges(dir);
+
+    expect(filesScanned).toBe(2);
+    expect(edges).toEqual([
+      { fromPath: 'src/main/java/a/b/Main.java', toPath: 'src/main/java/a/b/Helper.java', kind: 'import' },
+    ]);
+  });
+
+  it('resolves a PHP __DIR__-anchored require to a real sibling file', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'nexusmem-structure-php-'));
+    const g = (...args: string[]) => gitFixture(dir, args, { env: GIT_ENV });
+    g('init', '-q', '-b', 'main');
+
+    writeFileSync(join(dir, 'index.php'), "<?php\nrequire __DIR__ . '/config.php';\n");
+    writeFileSync(join(dir, 'config.php'), '<?php\nreturn [];\n');
+
+    g('add', '.');
+    g('commit', '-q', '-m', 'chore: initial commit');
+
+    const { edges, filesScanned } = await collectFileEdges(dir);
+
+    expect(filesScanned).toBe(2);
+    expect(edges).toEqual([{ fromPath: 'index.php', toPath: 'config.php', kind: 'import' }]);
   });
 });

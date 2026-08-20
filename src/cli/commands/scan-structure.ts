@@ -1,6 +1,8 @@
 import pc from 'picocolors';
-import { collectFileEdges } from '../../structure/collect.js';
+import { collectFileEdges, TRACKED_PATHSPECS } from '../../structure/collect.js';
 import { readRepoInfo } from '../../git/repo.js';
+
+const TRACKED_EXTENSIONS = TRACKED_PATHSPECS.map((p) => p.replace('*', '')).join('/');
 
 export interface ScanStructureOptions {
   cwd: string;
@@ -25,7 +27,7 @@ export async function runScanStructure(opts: ScanStructureOptions): Promise<numb
   }
 
   process.stderr.write(
-    `\n${pc.bold(String(edges.length))} edge(s) from ${filesScanned} tracked .ts/.tsx/.js/.jsx/.py/.go/.rs file(s)\n`,
+    `\n${pc.bold(String(edges.length))} edge(s) from ${filesScanned} tracked ${TRACKED_EXTENSIONS} file(s)\n`,
   );
 
   return 0;

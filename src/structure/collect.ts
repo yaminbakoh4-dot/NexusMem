@@ -3,16 +3,20 @@ import { join } from 'node:path';
 import { git } from '../git/exec.js';
 import { extractImportSpecifiers } from './extract.js';
 import { extractGoImportSpecifiers } from './extract-go.js';
+import { extractJavaImportSpecifiers } from './extract-java.js';
+import { extractPhpIncludeSpecifiers } from './extract-php.js';
 import { extractPythonImportSpecifiers } from './extract-python.js';
 import { extractRustModSpecifiers } from './extract-rust.js';
 import { resolveSpecifier } from './resolve.js';
 import { parseGoModulePath, resolveGoSpecifier } from './resolve-go.js';
+import { resolveJavaSpecifier } from './resolve-java.js';
+import { resolvePhpSpecifier } from './resolve-php.js';
 import { resolvePythonSpecifier } from './resolve-python.js';
 import { resolveRustModSpecifier } from './resolve-rust.js';
 import type { FileEdge } from './types.js';
 
-/** Tracked-only, same reasoning as `docs/read.ts`: `git ls-files` already excludes `node_modules`/`.git`/`.nexusmem` for free. */
-const TRACKED_PATHSPECS = ['*.ts', '*.tsx', '*.js', '*.jsx', '*.py', '*.go', '*.rs'];
+/** Tracked-only, same reasoning as `docs/read.ts`: `git ls-files` already excludes `node_modules`/`.git`/`.nexusmem` for free. Exported so callers reporting "which extensions" never drift from what's actually scanned. */
+export const TRACKED_PATHSPECS = ['*.ts', '*.tsx', '*.js', '*.jsx', '*.py', '*.go', '*.rs', '*.java', '*.php'];
 
 export interface StructureScan {
   edges: FileEdge[];
@@ -21,7 +25,7 @@ export interface StructureScan {
   unreadable: string[];
 }
 
-/** Every real edge `path`'s content produces, dispatched by extension. Go returns 0..N targets per import (a whole package); every other language returns 0..1. */
+/** Every real edge `path`'s content produces, dispatched by extension. Go and Java wildcard imports return 0..N targets per import (a whole package); every other language returns 0..1. */
 function resolveTargets(path: string, content: string, trackedPaths: ReadonlySet<string>, goModulePath: string | null): string[] {
   if (path.endsWith('.py')) {
     return extractPythonImportSpecifiers(content)
@@ -37,13 +41,21 @@ function resolveTargets(path: string, content: string, trackedPaths: ReadonlySet
     if (!goModulePath) return [];
     return extractGoImportSpecifiers(content).flatMap((imp) => resolveGoSpecifier(goModulePath, imp, trackedPaths));
   }
+  if (path.endsWith('.java')) {
+    return extractJavaImportSpecifiers(content).flatMap((s) => resolveJavaSpecifier(s, trackedPaths));
+  }
+  if (path.endsWith('.php')) {
+    return extractPhpIncludeSpecifiers(content)
+      .map((s) => resolvePhpSpecifier(path, s, trackedPaths))
+      .filter((t): t is string => t !== null);
+  }
   return extractImportSpecifiers(content)
     .map((s) => resolveSpecifier(path, s, trackedPaths))
     .filter((t): t is string => t !== null);
 }
 
 /**
- * Walk every tracked JS/TS/Python/Go/Rust file, extract its import
+ * Walk every tracked JS/TS/Python/Go/Rust/Java/PHP file, extract its import
  * specifiers, and resolve each against the tracked-path set. A full rescan
  * every call -- there is no cheap incremental cursor for "which files
  * changed their imports," so the caller (`syncStructure`) always replaces

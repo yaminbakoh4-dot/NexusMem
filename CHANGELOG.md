@@ -24,6 +24,11 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
   non-test file in the imported package) and Rust `mod foo;` declarations (2018+ edition module
   layout) now produce file edges too. External Go imports and Rust `use` paths are out of scope for
   the same reason.
+- Import graph: Java imports (`import a.b.C;` / `import a.b.*;`, resolved by unambiguous suffix
+  match against the tracked source tree) and `__DIR__`-anchored PHP `require`/`include` now produce
+  file edges too — all six of `nexusmem scan-structure`'s tracked languages. `import static`, PHP's
+  autoloaded `use Namespace\Class;`, and any unanchored PHP include are out of scope for the same
+  "missed edge over wrong edge" reason as everywhere else in the import graph.
 
 ## [0.5.4] — 2026-08-20
 
