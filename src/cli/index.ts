@@ -23,6 +23,7 @@ import { runScanGit } from './commands/scan-git.js';
 import { runScanSession, SCAN_SESSION_DEFAULT_MODEL } from './commands/scan-session.js';
 import { runScanShell } from './commands/scan-shell.js';
 import { runScanStructure } from './commands/scan-structure.js';
+import { runStale } from './commands/stale.js';
 import { runStatus } from './commands/status.js';
 import { runSync } from './commands/sync.js';
 
@@ -244,6 +245,16 @@ program
   .option('-C, --cwd <path>', 'repository path', process.cwd())
   .action((nodeId: string, options) =>
     guard(() => runMarkStale({ cwd: options.cwd, nodeId, supersedesId: options.supersedes }))(),
+  );
+
+program
+  .command('stale')
+  .description('List inferred nodes old enough to be worth double-checking (writes nothing)')
+  .option('-C, --cwd <path>', 'repository path', process.cwd())
+  .option('--min-age-days <days>', 'only nodes at least this old', (v) => Number.parseFloat(v))
+  .option('-n, --limit <count>', 'stop after N candidates', (v) => Number.parseInt(v, 10))
+  .action((options) =>
+    guard(() => runStale({ cwd: options.cwd, minAgeDays: options.minAgeDays, limit: options.limit }))(),
   );
 
 program

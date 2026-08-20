@@ -263,16 +263,25 @@ Latency on a ~530-node corpus, warm, p50 over 10 runs:
 All the SQLite work totals about 5 ms. The embedding call is the only thing on this path worth
 optimizing, and it is somebody else's process.
 
-## Manual staleness & provenance
+## Staleness & provenance
 
 Two things a memory layer needs and this one only partly has: a way to tell an observed fact from a
-guess, and a way to retire a conclusion once something contradicts it. Neither is automatic here —
-this section is what exists and what doesn't.
+guess, and a way to retire a conclusion once something contradicts it. This section is what exists
+and what doesn't.
 
 Every node carries a `provenance`: `observed` (a commit that landed, a shell command's real exit
 code) or `inferred` (a conversation turn, a session summary, a doc section — all readable as claims
-that could be wrong or go stale). Set once per collector at ingest time, and shown as a `[observed]`
-/ `[inferred]` tag on every query result.
+that could be wrong or go stale). Set once per collector at ingest time, shown as a `[observed]` /
+`[inferred]` tag on every query result, and now used to decay retrieval weight too — `inferred` nodes
+fade from ranking twice as fast as `observed` ones as they age.
+
+```bash
+nexusmem stale
+```
+
+Lists `inferred` nodes old enough (45+ days by default) that nothing has confirmed they still hold —
+a heuristic on age and provenance, not on content. It writes nothing; you decide which candidates are
+actually wrong.
 
 ```bash
 nexusmem mark-stale <oldNodeId> --supersedes <newNodeId>
@@ -281,10 +290,10 @@ nexusmem mark-stale <oldNodeId> --supersedes <newNodeId>
 Links `newNodeId` as the replacement for `oldNodeId`. The ranker down-weights the old node from then
 on (it stays queryable, just usually loses to its replacement) — nothing is deleted, unlike `forget`.
 
-**What this doesn't do:** nothing here detects staleness on its own. If a later commit contradicts an
-earlier doc section, NexusMem has no way to notice that and flag it — a human or an agent has to spot
-the contradiction and run `mark-stale` themselves. Automatic staleness detection is still an open
-problem.
+**What this doesn't do:** nothing here reads content to detect a real contradiction. If a later commit
+contradicts an earlier doc section, `nexusmem stale` won't know that specifically — it only knows the
+doc section is old and inferred. Actual contradiction detection (comparing what two nodes claim, not
+just how old one is) is still an open problem.
 
 ## Where it breaks
 
@@ -352,8 +361,8 @@ problem.
 ## Commands
 
 `init`, `sync`, `query <text>`, `status` (add `--share` for a plain-text summary worth pasting
-somewhere), `projects`, `mcp`, `forget <value>`, `mark-stale <nodeId> --supersedes <newNodeId>`,
-and `hook install|remove|status`.
+somewhere), `projects`, `mcp`, `forget <value>`, `stale`,
+`mark-stale <nodeId> --supersedes <newNodeId>`, and `hook install|remove|status`.
 
 There are also five dry-run previews (`scan-git`, `scan-diff`, `scan-shell`, `scan-docs`,
 `scan-conversation`)
