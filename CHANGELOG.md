@@ -9,6 +9,8 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
 
 ## [Unreleased]
 
+## [0.5.4] — 2026-08-20
+
 ### Added
 
 - `nexusmem status --share`: a plain-text, no-color summary (node count, failure→fix chains
