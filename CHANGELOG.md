@@ -9,6 +9,12 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
 
 ## [Unreleased]
 
+### Added
+
+- Ranker: `inferred` nodes (summaries, doc snapshots) now decay twice as fast as `observed` ones
+  (git commits, diffs, shell commands) for retrieval purposes. A judgment call, not a measured
+  optimum — see `INFERRED_HALF_LIFE_RATIO` in `src/retrieval/rank.ts`.
+
 ## [0.5.4] — 2026-08-20
 
 ### Added

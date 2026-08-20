@@ -18,8 +18,13 @@ export interface RankedHit extends SearchHit {
 }
 
 export interface RankOptions {
-  /** Days for the recency factor to halve. Default 30. */
+  /** Days for an `observed` node's recency factor to halve. Default 30. */
   halfLifeDays?: number;
+  /**
+   * Days for an `inferred` node's recency factor to halve. Defaults to
+   * `halfLifeDays * INFERRED_HALF_LIFE_RATIO` when omitted.
+   */
+  inferredHalfLifeDays?: number;
   /** Injectable for deterministic tests; defaults to the real clock. */
   now?: Date;
   /**
@@ -47,6 +52,9 @@ const SIGNAL_FLOOR = 0.2;
 const RECENCY_FLOOR = 0.3;
 const DEFAULT_HALF_LIFE_DAYS = 30;
 const MS_PER_DAY = 86_400_000;
+
+/** `inferred` nodes decay twice as fast as `observed` ones -- a judgment call, not a measured optimum. */
+const INFERRED_HALF_LIFE_RATIO = 0.5;
 
 /** Flat down-weight for a superseded node -- not near-zero, since it must stay reachable if it's still the best match. */
 const SUPERSEDED_PENALTY = 0.5;
@@ -143,6 +151,7 @@ export function rankHits(hits: readonly SearchHit[], opts: RankOptions = {}): Ra
   if (hits.length === 0) return [];
 
   const halfLife = opts.halfLifeDays ?? DEFAULT_HALF_LIFE_DAYS;
+  const inferredHalfLife = opts.inferredHalfLifeDays ?? halfLife * INFERRED_HALF_LIFE_RATIO;
   const now = opts.now ?? new Date();
   const relevances = opts.relevanceScores ? normalizeExternalRelevance(hits, opts.relevanceScores) : normalizeRelevance(hits);
 
@@ -150,7 +159,8 @@ export function rankHits(hits: readonly SearchHit[], opts: RankOptions = {}): Ra
     const relevance = relevances[i] ?? RELEVANCE_FLOOR;
     const signalWeight = SIGNAL_FLOOR + (1 - SIGNAL_FLOOR) * hit.signal;
     const ageDays = ageDaysOf(hit.ts, now);
-    const recencyFactor = RECENCY_FLOOR + (1 - RECENCY_FLOOR) * 2 ** (-ageDays / halfLife);
+    const effectiveHalfLife = hit.provenance === 'inferred' ? inferredHalfLife : halfLife;
+    const recencyFactor = RECENCY_FLOOR + (1 - RECENCY_FLOOR) * 2 ** (-ageDays / effectiveHalfLife);
 
     const rawScore = relevance * signalWeight ** SIGNAL_EXPONENT * recencyFactor ** RECENCY_EXPONENT;
     const score = opts.supersededIds?.has(hit.id) ? rawScore * SUPERSEDED_PENALTY : rawScore;

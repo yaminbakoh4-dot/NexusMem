@@ -55,6 +55,30 @@ describe('rankHits', () => {
     expect(ranked[1]!.recencyFactor).toBeGreaterThanOrEqual(0.3); // floor, never zero
   });
 
+  it('decays an inferred node faster than an observed one of the same age, relevance and signal', () => {
+    const age45d = new Date(NOW.getTime() - 45 * 86_400_000).toISOString();
+    const ranked = rankHits(
+      [
+        hit({ id: 'observed', rank: -2, ts: age45d, provenance: 'observed' }),
+        hit({ id: 'inferred', rank: -2, ts: age45d, provenance: 'inferred' }),
+      ],
+      { now: NOW, halfLifeDays: 30 },
+    );
+    expect(ranked.map((r) => r.id)).toEqual(['observed', 'inferred']);
+    expect(ranked[1]!.recencyFactor).toBeLessThan(ranked[0]!.recencyFactor);
+  });
+
+  it('respects an explicit inferredHalfLifeDays override instead of deriving it from halfLifeDays', () => {
+    const age10d = new Date(NOW.getTime() - 10 * 86_400_000).toISOString();
+    const ranked = rankHits([hit({ id: 'a', rank: -2, ts: age10d, provenance: 'inferred' })], {
+      now: NOW,
+      halfLifeDays: 30,
+      inferredHalfLifeDays: 30, // same as observed -- no extra decay
+    });
+    // 2**(-10/30) blended into [0.3, 1]
+    expect(ranked[0]!.recencyFactor).toBeCloseTo(0.3 + 0.7 * 2 ** (-10 / 30), 5);
+  });
+
   it('never lets one factor crush the others to exactly zero', () => {
     const veryOld = new Date(NOW.getTime() - 5000 * 86_400_000).toISOString();
     const ranked = rankHits([hit({ id: 'ancient', rank: -2, signal: 0.05, ts: veryOld })], { now: NOW });
