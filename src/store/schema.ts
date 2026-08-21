@@ -213,7 +213,8 @@ interface Migration {
   up: (db: Database) => void;
 }
 
-const MIGRATIONS: Migration[] = [
+/** Exported so a test can replay a real subset of these against hand-seeded old-shaped data, instead of re-typing frozen migration SQL by hand. */
+export const MIGRATIONS: Migration[] = [
   { version: 1, up: (db) => db.exec(V1) },
   { version: 2, up: (db) => db.exec(V2) },
   { version: 3, up: (db) => db.exec(V3) },
