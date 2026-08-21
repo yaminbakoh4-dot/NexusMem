@@ -23,7 +23,7 @@ import { runScanGit } from './commands/scan-git.js';
 import { runScanSession, SCAN_SESSION_DEFAULT_MODEL } from './commands/scan-session.js';
 import { runScanShell } from './commands/scan-shell.js';
 import { runScanStructure } from './commands/scan-structure.js';
-import { runStale } from './commands/stale.js';
+import { runStale, STALE_DEFAULT_MODEL } from './commands/stale.js';
 import { runStatus } from './commands/status.js';
 import { runSync } from './commands/sync.js';
 
@@ -253,8 +253,21 @@ program
   .option('-C, --cwd <path>', 'repository path', process.cwd())
   .option('--min-age-days <days>', 'only nodes at least this old', (v) => Number.parseFloat(v))
   .option('-n, --limit <count>', 'stop after N candidates', (v) => Number.parseInt(v, 10))
+  .option(
+    '--check-contradictions',
+    'ask the local SLM whether a similar newer node actually contradicts each candidate (needs Ollama)',
+  )
+  .option('--model <name>', 'Ollama chat model for --check-contradictions', STALE_DEFAULT_MODEL)
   .action((options) =>
-    guard(() => runStale({ cwd: options.cwd, minAgeDays: options.minAgeDays, limit: options.limit }))(),
+    guard(() =>
+      runStale({
+        cwd: options.cwd,
+        minAgeDays: options.minAgeDays,
+        limit: options.limit,
+        checkContradictions: options.checkContradictions,
+        model: options.model,
+      }),
+    )(),
   );
 
 program
