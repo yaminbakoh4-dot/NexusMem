@@ -9,6 +9,20 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
 
 ## [Unreleased]
 
+### Added
+
+- Import graph: bare Python imports with no leading dot (`import foo`, `from foo import bar`)
+  now resolve to a same-directory sibling file too, alongside the existing relative-dot support.
+  Found dogfooding two real local projects: neither used a single PEP 328 relative import, both
+  relied entirely on this flat-script style. Guarded by a static list of stdlib module names so a
+  bare `import os`/`import queue`/etc. is never mistaken for a same-named local file.
+
+### Fixed
+
+- Import graph: a Java wildcard import (`import a.b.*;`) no longer merges files from two
+  unrelated packages that happen to share a directory-name suffix (e.g. two Gradle/Maven modules
+  each with their own `.../foo`) — it now refuses to guess, same as the single-class-import case.
+
 ## [0.6.0] — 2026-08-20
 
 ### Added
