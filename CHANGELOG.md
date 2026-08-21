@@ -11,6 +11,12 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
 
 ### Added
 
+- `nexusmem stale --check-contradictions`: for each stale candidate, finds the most similar newer
+  node (local embedding search) and asks a local SLM (Ollama, `qwen2.5:3b` by default) whether it
+  actually contradicts the older one, instead of only surfacing by age. Suggest-only — nothing is
+  written, same as plain `stale`. Live-dogfooded against this repo's own real database and Ollama
+  instance; found and fixed a real gap along the way (below) before the feature surfaced anything
+  useful.
 - Import graph: bare Python imports with no leading dot (`import foo`, `from foo import bar`)
   now resolve to a same-directory sibling file too, alongside the existing relative-dot support.
   Found dogfooding two real local projects: neither used a single PEP 328 relative import, both
@@ -22,6 +28,12 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
 - Import graph: a Java wildcard import (`import a.b.*;`) no longer merges files from two
   unrelated packages that happen to share a directory-name suffix (e.g. two Gradle/Maven modules
   each with their own `.../foo`) — it now refuses to guess, same as the single-class-import case.
+- `stale --check-contradictions`'s neighbor search now looks past same-timestamp sibling nodes
+  (e.g. the many chunks one long conversation gets split into) to reach genuinely newer content.
+  Found live-dogfooding against this repo's own database: the first real candidate's closest 15
+  neighbors were all same-conversation siblings sharing its exact timestamp, so the original
+  5-neighbor default silently found zero suggestions for every candidate, regardless of what the
+  SLM would have said.
 
 ## [0.6.0] — 2026-08-20
 

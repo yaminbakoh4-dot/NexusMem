@@ -290,10 +290,22 @@ nexusmem mark-stale <oldNodeId> --supersedes <newNodeId>
 Links `newNodeId` as the replacement for `oldNodeId`. The ranker down-weights the old node from then
 on (it stays queryable, just usually loses to its replacement) — nothing is deleted, unlike `forget`.
 
-**What this doesn't do:** nothing here reads content to detect a real contradiction. If a later commit
-contradicts an earlier doc section, `nexusmem stale` won't know that specifically — it only knows the
-doc section is old and inferred. Actual contradiction detection (comparing what two nodes claim, not
-just how old one is) is still an open problem.
+```bash
+nexusmem stale --check-contradictions
+```
+
+For each candidate, finds the most similar newer node (local embedding search) and asks a local SLM
+(Ollama, `qwen2.5:3b` by default) whether it actually contradicts the older one — real content
+comparison, not just age. A match is printed as `likely superseded by <id> <title> -- <reason>`
+under the candidate; nothing is written, same as plain `stale`. Needs Ollama running; costs one
+embedding call and, when a plausible newer node exists, one chat completion per candidate (capped at
+10 by default — pass `-n` to raise it).
+
+**What this doesn't do:** it is one small model's yes/no judgment on one older/newer pair, not a
+verified fact — treat a match as a lead to check, not a conclusion. It also only ever compares a
+candidate against nodes *found by embedding similarity*; a contradiction from an unrelated-sounding
+node would never surface. Real contradiction detection (comprehensively, not just for the pair the
+vector search happens to surface) is still an open problem.
 
 ## Where it breaks
 
@@ -361,8 +373,9 @@ just how old one is) is still an open problem.
 ## Commands
 
 `init`, `sync`, `query <text>`, `status` (add `--share` for a plain-text summary worth pasting
-somewhere), `projects`, `mcp`, `forget <value>`, `stale`,
-`mark-stale <nodeId> --supersedes <newNodeId>`, and `hook install|remove|status`.
+somewhere), `projects`, `mcp`, `forget <value>`, `stale` (add `--check-contradictions` for a local-SLM
+content check, see above), `mark-stale <nodeId> --supersedes <newNodeId>`, and
+`hook install|remove|status`.
 
 There are also five dry-run previews (`scan-git`, `scan-diff`, `scan-shell`, `scan-docs`,
 `scan-conversation`)
