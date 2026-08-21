@@ -6,6 +6,8 @@ import { runInit } from '../src/cli/commands/init.js';
 import { runStatus } from '../src/cli/commands/status.js';
 import { runSync } from '../src/cli/commands/sync.js';
 import { loadContext } from '../src/cli/context.js';
+import { correlateFailures } from '../src/correlate/failure-fix.js';
+import type { MemoryNode } from '../src/core/types.js';
 import { LATEST_SCHEMA_VERSION } from '../src/store/schema.js';
 import { MemoryStore } from '../src/store/store.js';
 import { gitFixture } from './helpers.js';
@@ -14,10 +16,28 @@ import { gitFixture } from './helpers.js';
  * `tests/status.test.ts` only covers the stale-project-identity branch of
  * `runStatus`. The rest of the report -- schema line, "no sources synced
  * yet" before a first sync, the real sources list with a git cursor, and
- * the structure line -- had no coverage. Chains is deliberately not covered
- * here: reproducing it needs a real failure/retry pair, which is out of
- * scope for what this file sets out to close.
+ * the structure line -- had no coverage. Chains was left out too until the
+ * "backfills provenance..." pass below was added: it needs a real
+ * failure/retry pair, seeded and correlated the same way
+ * `tests/sync-link-failures.test.ts` and `tests/correlate.test.ts` already do.
  */
+
+const HOUR = 60 * 60 * 1000;
+
+function shellNode(projectId: string, id: string, opts: { ts: number; command: string; exitCode: number }): MemoryNode {
+  return {
+    id,
+    kind: 'shell_command',
+    projectId,
+    ts: new Date(opts.ts).toISOString(),
+    source: 'shell:pwsh-hook',
+    title: `$ ${opts.command}`,
+    body: `$ ${opts.command}`,
+    files: [],
+    signal: 0.3,
+    meta: { command: opts.command, cwd: '/repo', exitCode: opts.exitCode, durationMs: 100, tsApprox: false },
+  };
+}
 
 const GIT_ENV = {
   ...process.env,
@@ -121,6 +141,26 @@ describe('status report body', () => {
     expect(output).toMatch(/aging\s+1 inferred node\(s\) worth a look/);
     expect(output).toContain('nexusmem stale');
   });
+
+  it('surfaces the chains line with a real failure/retry pair, including the link-more nudge for a still-unresolved failure', async () => {
+    await runInit({ cwd: dir, force: false, hook: false, enableConversation: false, out: () => {} });
+    await runSync({ cwd: dir, full: true, rebuild: false, noEmbed: true, quiet: true, out: () => {} });
+
+    const { ws, projectId } = await loadContext(dir);
+    const store = MemoryStore.open(ws.dbPath);
+    const t0 = Date.parse('2026-01-01T00:00:00Z');
+    store.upsertNodes([
+      shellNode(projectId, 'fail-resolved', { ts: t0, command: 'npm test', exitCode: 1 }),
+      shellNode(projectId, 'fail-resolved-retry', { ts: t0 + HOUR, command: 'npm test', exitCode: 0 }),
+      shellNode(projectId, 'fail-unresolved', { ts: t0 + 2 * HOUR, command: 'npm build', exitCode: 1 }),
+    ]);
+    correlateFailures(store, projectId);
+    store.close();
+
+    const output = await statusOutput();
+    expect(output).toMatch(/chains\s+1\/2 failure\(s\) resolved \(1 retry, 0 discussion\)/);
+    expect(output).toContain('run nexusmem sync --link-failures to link more');
+  });
 });
 
 describe('status --share', () => {
@@ -158,5 +198,23 @@ describe('status --share', () => {
 
     const output = await statusOutput(true);
     expect(output).not.toContain('failure -> fix');
+  });
+
+  it('includes the chains line with real counts once a failure/retry pair is linked', async () => {
+    await runInit({ cwd: dir, force: false, hook: false, enableConversation: false, out: () => {} });
+    await runSync({ cwd: dir, full: true, rebuild: false, noEmbed: true, quiet: true, out: () => {} });
+
+    const { ws, projectId } = await loadContext(dir);
+    const store = MemoryStore.open(ws.dbPath);
+    const t0 = Date.parse('2026-01-01T00:00:00Z');
+    store.upsertNodes([
+      shellNode(projectId, 'fail', { ts: t0, command: 'npm test', exitCode: 1 }),
+      shellNode(projectId, 'retry', { ts: t0 + HOUR, command: 'npm test', exitCode: 0 }),
+    ]);
+    correlateFailures(store, projectId);
+    store.close();
+
+    const output = await statusOutput(true);
+    expect(output).toContain('1/1 failure -> fix chain(s) linked');
   });
 });
