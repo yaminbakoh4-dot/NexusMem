@@ -381,7 +381,7 @@ program
 
 program
   .command('scan-structure')
-  .description('Preview the JS/TS/Python import-graph edges a sync would produce (writes nothing)')
+  .description('Preview the JS/TS/Python/Go/Rust/Java/PHP import-graph edges a sync would produce (writes nothing)')
   .option('-C, --cwd <path>', 'repository path', process.cwd())
   .option('--json', 'emit edges as JSON on stdout', false)
   .action((options) => guard(() => runScanStructure({ cwd: options.cwd, json: options.json }))());

@@ -404,7 +404,7 @@ async function syncDocs(
 }
 
 /**
- * JS/TS/Python import-graph edges (`file_edges`, not `nodes`) -- there is no
+ * JS/TS/Python/Go/Rust/Java/PHP import-graph edges (`file_edges`, not `nodes`) -- there is no
  * `IngestStats` to report since edges aren't MemoryNodes, just a full
  * replace of the project's `file_edges` snapshot every run, same reasoning
  * `syncDocs` above documents for why a full re-scan is safe here too (no
