@@ -85,17 +85,25 @@ describe('resolveSpecifier', () => {
 });
 
 describe('extractPythonImportSpecifiers', () => {
-  it('extracts a module-level relative import and a from-import', () => {
+  it('extracts a module-level relative import and a from-import, plus the bare "import os" as a dot-free candidate', () => {
     const source = ['import os', 'from .utils import helper', 'from ..pkg.sub import thing'].join('\n');
-    expect(extractPythonImportSpecifiers(source).sort()).toEqual(['..pkg.sub', '.utils'].sort());
+    expect(extractPythonImportSpecifiers(source).sort()).toEqual(['..pkg.sub', '.utils', 'os'].sort());
   });
 
   it('extracts each name from a bare "from . import x, y as z" as its own candidate', () => {
     expect(extractPythonImportSpecifiers('from . import x, y as z')).toEqual(['.x', '.y']);
   });
 
-  it('drops an absolute import -- could be stdlib, third-party, or this project, not distinguishable from text', () => {
-    expect(extractPythonImportSpecifiers('import numpy as np\nfrom numpy import array\n')).toEqual([]);
+  it('drops a dotted absolute import -- could be a real path anywhere on sys.path, not necessarily a subdirectory here', () => {
+    expect(extractPythonImportSpecifiers('import os.path\nfrom numpy.random import default_rng\n')).toEqual([]);
+  });
+
+  it('captures a bare, dot-free absolute import as a same-directory candidate -- resolvePythonSpecifier is what filters stdlib out, not extraction', () => {
+    expect(extractPythonImportSpecifiers('import numpy as np\nfrom agents import Agent\n').sort()).toEqual(['agents', 'numpy'].sort());
+  });
+
+  it('extracts every comma-separated name from one bare "import a, b as c" line', () => {
+    expect(extractPythonImportSpecifiers('import agents, invideo_bot as bot').sort()).toEqual(['agents', 'invideo_bot'].sort());
   });
 
   it('ignores a bare "*" in "from . import *"', () => {
@@ -108,6 +116,10 @@ describe('extractPythonImportSpecifiers', () => {
 
   it('strips a trailing comment from a bare import list', () => {
     expect(extractPythonImportSpecifiers('from . import x  # noqa')).toEqual(['.x']);
+  });
+
+  it('strips a trailing comment from a bare "import x" line too', () => {
+    expect(extractPythonImportSpecifiers('import agents  # noqa')).toEqual(['agents']);
   });
 });
 
@@ -134,8 +146,21 @@ describe('resolvePythonSpecifier', () => {
     expect(resolvePythonSpecifier('pkg/entry.py', '.missing', tracked)).toBeNull();
   });
 
-  it('returns null for a specifier with no dots', () => {
-    expect(resolvePythonSpecifier('pkg/entry.py', 'a', tracked)).toBeNull();
+  it('resolves a bare, dot-free specifier to a same-directory sibling module -- the flat-script import style found dogfooding real projects', () => {
+    expect(resolvePythonSpecifier('pkg/entry.py', 'a', tracked)).toBe('pkg/a.py');
+  });
+
+  it('resolves a bare specifier to a same-directory package __init__.py', () => {
+    expect(resolvePythonSpecifier('app/entry.py', 'utils', new Set(['app/utils/__init__.py']))).toBe('app/utils/__init__.py');
+  });
+
+  it('does not resolve a bare specifier across directories -- only exact same-directory siblings are safe enough to guess', () => {
+    expect(resolvePythonSpecifier('entry.py', 'b', tracked)).toBeNull(); // pkg/sub/b.py exists, but not at the root
+  });
+
+  it('refuses a bare specifier that is a well-known stdlib module name, even if a same-named local file exists', () => {
+    const shadowed = new Set(['os.py']);
+    expect(resolvePythonSpecifier('entry.py', 'os', shadowed)).toBeNull();
   });
 });
 
@@ -352,6 +377,29 @@ describe('collectFileEdges', () => {
 
     expect(filesScanned).toBe(2);
     expect(edges).toEqual([{ fromPath: 'pkg/main.py', toPath: 'pkg/helper.py', kind: 'import' }]);
+  });
+
+  it('resolves a real-world flat-script Python edge: a bare same-directory import with no leading dot', async () => {
+    // The style found dogfooding two real local projects (ComfyUI-Manager,
+    // ai-content-factory) 2026-08-21: neither used a single PEP 328 relative
+    // import, both import sibling files this way.
+    const dir = mkdtempSync(join(tmpdir(), 'nexusmem-structure-py-bare-'));
+    const g = (...args: string[]) => gitFixture(dir, args, { env: GIT_ENV });
+    g('init', '-q', '-b', 'main');
+
+    writeFileSync(join(dir, 'app.py'), 'import os\nimport agents\nfrom memory_manager import get_memory\n');
+    writeFileSync(join(dir, 'agents.py'), 'def run():\n    pass\n');
+    writeFileSync(join(dir, 'memory_manager.py'), 'def get_memory():\n    pass\n');
+
+    g('add', '.');
+    g('commit', '-q', '-m', 'chore: initial commit');
+
+    const { edges } = await collectFileEdges(dir);
+
+    expect(edges.sort((a, b) => a.toPath.localeCompare(b.toPath))).toEqual([
+      { fromPath: 'app.py', toPath: 'agents.py', kind: 'import' },
+      { fromPath: 'app.py', toPath: 'memory_manager.py', kind: 'import' },
+    ]);
   });
 
   it('resolves a Go internal import to every non-test file in the imported package', async () => {
