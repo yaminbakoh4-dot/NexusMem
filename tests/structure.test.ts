@@ -262,6 +262,11 @@ describe('resolveJavaSpecifier', () => {
     const ambiguous = new Set(['src/main/java/a/b/C.java', 'other-root/a/b/C.java']);
     expect(resolveJavaSpecifier('a.b.C', ambiguous)).toEqual([]);
   });
+
+  it('returns [] for a wildcard rather than merging two unrelated packages that share a directory suffix', () => {
+    const twoModules = new Set(['alpha/foo/X.java', 'beta/foo/Y.java']);
+    expect(resolveJavaSpecifier('foo.*', twoModules)).toEqual([]);
+  });
 });
 
 describe('extractPhpIncludeSpecifiers', () => {
