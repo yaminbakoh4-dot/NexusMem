@@ -220,6 +220,20 @@ describe('checkContradictions', () => {
     expect(slm.prompts).toHaveLength(1);
   });
 
+  it('stops after two consecutive null replies instead of burning a timeout per remaining candidate', async () => {
+    const a = node({ id: 'a', ts: '2026-08-01T00:00:00Z', title: 'A' });
+    const b = node({ id: 'b', ts: '2026-08-02T00:00:00Z', title: 'B' });
+    const c = node({ id: 'c', ts: '2026-08-03T00:00:00Z', title: 'C' });
+    const newer = node({ id: 'newer', ts: '2026-08-20T00:00:00Z', title: 'Newer' });
+    store.upsertNodes([a, b, c, newer]);
+    await embedAllPending();
+
+    const downSlm = new FakeSummarizationProvider(() => null);
+    await checkContradictions(store, embedder, downSlm, PROJECT, [staleCandidate(a), staleCandidate(b), staleCandidate(c)]);
+
+    expect(downSlm.prompts).toHaveLength(2);
+  });
+
   it('does not memoize when the SLM is unavailable, so the pair is retried next run', async () => {
     const oldNode = node({ id: 'old', ts: '2026-08-01T00:00:00Z' });
     const newNode = node({ id: 'new', ts: '2026-08-20T00:00:00Z', body: oldNode.body });

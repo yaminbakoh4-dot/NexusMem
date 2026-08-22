@@ -78,6 +78,7 @@ export async function checkContradictions(
   const model = opts.model ?? DEFAULT_SLM_MODEL;
   const suggestions: ContradictionSuggestion[] = [];
   let judgments = 0;
+  let consecutiveNullReplies = 0;
 
   for (const candidate of candidates.slice(0, limit)) {
     if (opts.maxJudgments !== undefined && judgments >= opts.maxJudgments) break;
@@ -97,7 +98,14 @@ export async function checkContradictions(
     if (store.hasContradictionCheck(candidate.id, nearest.id)) continue;
 
     const reply = await slmProvider.complete(buildContradictionPrompt(full, nearest));
-    if (!reply) continue;
+    if (!reply) {
+      // Two nulls in a row reads as "provider is down", not two unlucky
+      // prompts -- stop burning a timeout per remaining candidate.
+      consecutiveNullReplies += 1;
+      if (consecutiveNullReplies >= 2) break;
+      continue;
+    }
+    consecutiveNullReplies = 0;
 
     const verdict = parseContradictionVerdict(reply);
     if (!verdict) continue; // malformed reply: not trustworthy either way, leave the pair unrecorded for a retry

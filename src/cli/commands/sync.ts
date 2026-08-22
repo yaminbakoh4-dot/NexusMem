@@ -7,19 +7,20 @@ import { collectGitCommits } from '../../collectors/git-commits.js';
 import { collectSessionSummaries } from '../../collectors/sessions.js';
 import { collectShellHistory } from '../../collectors/shell-history.js';
 import { forgetProjects, recordProject } from '../../config/registry.js';
-import { writeConfig } from '../../config/workspace.js';
+import { writeConfig, type NexusConfig } from '../../config/workspace.js';
 import { collectClaudeCodeTranscripts } from '../../conversation/claude-code-reader.js';
 import type { RawConversationTurn } from '../../conversation/types.js';
 import { makeNodeId } from '../../core/ids.js';
 import type { MemoryNode } from '../../core/types.js';
 import { readDocFiles } from '../../docs/read.js';
 import { isAncestor } from '../../git/repo.js';
+import { checkContradictions } from '../../retrieval/contradiction.js';
 import { collectAvailableShellHistory } from '../../shell/detect.js';
-import { OllamaChatProvider } from '../../slm/provider.js';
+import { OllamaChatProvider, type SummarizationProvider } from '../../slm/provider.js';
 import { reconcileProjectId } from '../../store/reconcile.js';
 import { MemoryStore, type IngestStats } from '../../store/store.js';
 import { collectFileEdges } from '../../structure/collect.js';
-import { OllamaEmbeddingProvider } from '../../vector/embed.js';
+import { OllamaEmbeddingProvider, type EmbeddingProvider } from '../../vector/embed.js';
 import { embedPendingNodes } from '../../vector/sync.js';
 import { loadContext } from '../context.js';
 
@@ -515,6 +516,39 @@ function runPruneSources(
   return 0;
 }
 
+/**
+ * The automatic leg of contradiction detection: judge up to
+ * `contradictions.maxPerSync` new (candidate, newer neighbour) pairs and
+ * return the one-line summary for the sync report ('' when there is nothing
+ * to say). Exported with injectable providers for tests; `runSync` passes
+ * the real Ollama ones. Suggest-only, same as `stale --check-contradictions`
+ * -- the judgments land in `contradiction_checks` for `stale`/`status` to
+ * surface, never in `supersedes`.
+ */
+export async function runAutoContradictionCheck(
+  store: MemoryStore,
+  config: NexusConfig,
+  projectId: string,
+  providers: { embedder: EmbeddingProvider; slm: SummarizationProvider },
+): Promise<string> {
+  if (!config.contradictions.autoCheck) return '';
+
+  const candidates = store.listStaleCandidates(projectId);
+  if (candidates.length === 0) return '';
+
+  const fresh = await checkContradictions(store, providers.embedder, providers.slm, projectId, candidates, {
+    limit: candidates.length,
+    maxJudgments: config.contradictions.maxPerSync,
+    model: config.contradictions.model,
+  });
+
+  const open = store.countContradictionSuggestions(projectId);
+  if (fresh.length === 0 && open === 0) return '';
+
+  const freshPart = fresh.length > 0 ? pc.yellow(`${fresh.length} new`) : `${fresh.length} new`;
+  return `  ${pc.dim('contradictions:')} ${freshPart}${pc.dim(`, ${open} open suggestion(s) -- run`)} ${pc.bold('nexusmem stale')} ${pc.dim('for detail')}\n`;
+}
+
 export async function runSync(opts: SyncOptions): Promise<number> {
   const { repo, ws, projectId, config } = await loadContext(opts.cwd);
   const log = (line: string) => {
@@ -598,6 +632,7 @@ export async function runSync(opts: SyncOptions): Promise<number> {
     const structure = await syncStructure(store, projectId, repo.root, config, log);
 
     let embedLine = '';
+    let embeddingAvailable = false;
     if (!opts.noEmbed) {
       // Progress matters now that one pass drains the whole backlog: on a
       // first sync of a large repository this is the longest step by far, and
@@ -614,6 +649,8 @@ export async function runSync(opts: SyncOptions): Promise<number> {
         },
       });
 
+      embeddingAvailable = !result.providerUnavailable;
+
       if (result.embedded > 0) {
         const skippedPart = result.skipped > 0 ? pc.dim(`, ${result.skipped} skipped`) : '';
         const remainingPart = result.remaining > 0 ? pc.yellow(`, ${result.remaining} still pending`) : '';
@@ -622,6 +659,17 @@ export async function runSync(opts: SyncOptions): Promise<number> {
         log(`${pc.dim('vector')} embedding provider unavailable (is Ollama running with nomic-embed-text pulled?) -- BM25-only for now`);
       }
     }
+
+    // Piggybacks on the embedding gate: --no-embed means "stay off the
+    // network this run", and an unavailable embedding provider means the chat
+    // model behind the same Ollama endpoint is not worth trying either.
+    const contradictionLine =
+      !opts.noEmbed && embeddingAvailable
+        ? await runAutoContradictionCheck(store, config, projectId, {
+            embedder: new OllamaEmbeddingProvider(),
+            slm: new OllamaChatProvider({ model: config.contradictions.model }),
+          })
+        : '';
 
     let linkLine = '';
     if (opts.linkFailures) {
@@ -659,7 +707,7 @@ export async function runSync(opts: SyncOptions): Promise<number> {
         `  ${pc.green(`+${totals.inserted} new`)}  ${pc.yellow(`~${totals.updated} updated`)}  ${pc.dim(`=${totals.unchanged} unchanged`)}${deniedPart}`,
         `  ${pc.dim(`${stats.total} node(s) total across ${stats.distinctFiles} file path(s)`)}`,
         '',
-      ].join('\n') + embedLine + linkLine,
+      ].join('\n') + embedLine + linkLine + contradictionLine,
     );
 
     return 0;

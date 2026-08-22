@@ -146,6 +146,21 @@ export const ConfigSchema = z.object({
       maxBodyChars: z.number().int().positive().default(4000),
     })
     .default({ maxFilesPerNode: 40, maxBodyChars: 4000 }),
+  /**
+   * Automatic contradiction checking during sync. On by default -- unlike the
+   * opt-in transcript sources, this reads nothing new, writes only suggestions
+   * (never `supersedes`), and stays affordable by construction: at most
+   * `maxPerSync` new SLM judgments per run, judged pairs memoized and never
+   * re-asked, and an unreachable model degrades to skipping quietly.
+   */
+  contradictions: z
+    .object({
+      autoCheck: z.boolean().default(true),
+      maxPerSync: z.number().int().nonnegative().default(3),
+      /** Ollama model tag. Must be pulled locally, same as `sources.session.model`. */
+      model: z.string().default(DEFAULT_SLM_MODEL),
+    })
+    .default({ autoCheck: true, maxPerSync: 3, model: DEFAULT_SLM_MODEL }),
 });
 
 export type NexusConfig = z.infer<typeof ConfigSchema>;
