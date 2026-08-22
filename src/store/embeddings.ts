@@ -61,6 +61,15 @@ export function countNodesNeedingEmbedding(db: Database, projectId: string): num
   return row.n;
 }
 
+/** The stored vector for one node, or null if it has not been embedded yet. */
+export function getEmbedding(db: Database, nodeId: string): Float32Array | null {
+  const row = db
+    .prepare('SELECT v.embedding AS embedding FROM nodes_vec v JOIN nodes n ON n.rowid = v.rowid WHERE n.id = ?')
+    .get(nodeId) as { embedding: Buffer } | undefined;
+  if (!row) return null;
+  return new Float32Array(row.embedding.buffer, row.embedding.byteOffset, row.embedding.byteLength / 4);
+}
+
 export function upsertEmbedding(db: Database, rowid: number, embedding: Float32Array): void {
   db.prepare('INSERT OR REPLACE INTO nodes_vec (rowid, embedding) VALUES (?, ?)').run(BigInt(rowid), embedding);
 }

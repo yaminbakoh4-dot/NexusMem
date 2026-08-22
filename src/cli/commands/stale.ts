@@ -53,6 +53,7 @@ export async function runStale(opts: StaleOptions): Promise<number> {
         new OllamaChatProvider({ model: opts.model ?? DEFAULT_SLM_MODEL }),
         projectId,
         candidates,
+        { model: opts.model ?? DEFAULT_SLM_MODEL },
       );
     }
     const byCandidateId = new Map(suggestions.map((s) => [s.candidateId, s]));

@@ -166,4 +166,69 @@ describe('checkContradictions', () => {
 
     expect(suggestions).toEqual([{ candidateId: 'old', againstId: 'newer', againstTitle: 'Newer', reason: 'superseded' }]);
   });
+
+  it('records every new judgment (either verdict) so the pair is never re-asked', async () => {
+    const oldNode = node({ id: 'old', ts: '2026-08-01T00:00:00Z' });
+    const newNode = node({ id: 'new', ts: '2026-08-20T00:00:00Z', body: oldNode.body });
+    store.upsertNodes([oldNode, newNode]);
+    await embedAllPending();
+
+    const slm = new FakeSummarizationProvider(() => 'VERDICT: NO\nREASON: different topics');
+    await checkContradictions(store, embedder, slm, PROJECT, [staleCandidate(oldNode)], { model: 'test-model' });
+    expect(store.hasContradictionCheck('old', 'new')).toBe(true);
+    expect(slm.prompts).toHaveLength(1);
+
+    // Second run: memoized, zero model calls, still no suggestion.
+    const again = await checkContradictions(store, embedder, slm, PROJECT, [staleCandidate(oldNode)], { model: 'test-model' });
+    expect(again).toEqual([]);
+    expect(slm.prompts).toHaveLength(1);
+  });
+
+  it('uses the stored embedding when one exists instead of re-embedding the candidate', async () => {
+    const oldNode = node({ id: 'old', ts: '2026-08-01T00:00:00Z' });
+    const newNode = node({ id: 'new', ts: '2026-08-20T00:00:00Z', body: oldNode.body });
+    store.upsertNodes([oldNode, newNode]);
+    await embedAllPending();
+
+    // A provider that fails loudly if asked proves the stored vector was used.
+    const deadEmbedder = {
+      dimension: EMBEDDING_DIM,
+      identity: 'dead',
+      embed: async (): Promise<Float32Array | null> => {
+        throw new Error('embed() must not be called when a stored vector exists');
+      },
+    };
+    const slm = new FakeSummarizationProvider(() => 'VERDICT: YES\nREASON: superseded');
+    const suggestions = await checkContradictions(store, deadEmbedder, slm, PROJECT, [staleCandidate(oldNode)]);
+
+    expect(suggestions.map((s) => s.candidateId)).toEqual(['old']);
+  });
+
+  it('caps new SLM judgments at maxJudgments while limit still admits more candidates', async () => {
+    const a = node({ id: 'a', ts: '2026-08-01T00:00:00Z', title: 'A' });
+    const b = node({ id: 'b', ts: '2026-08-02T00:00:00Z', title: 'B' });
+    const newer = node({ id: 'newer', ts: '2026-08-20T00:00:00Z', title: 'Newer', body: a.body });
+    store.upsertNodes([a, b, newer]);
+    await embedAllPending();
+
+    const slm = new FakeSummarizationProvider(() => 'VERDICT: NO\nREASON: n/a');
+    await checkContradictions(store, embedder, slm, PROJECT, [staleCandidate(a), staleCandidate(b)], {
+      limit: 10,
+      maxJudgments: 1,
+    });
+
+    expect(slm.prompts).toHaveLength(1);
+  });
+
+  it('does not memoize when the SLM is unavailable, so the pair is retried next run', async () => {
+    const oldNode = node({ id: 'old', ts: '2026-08-01T00:00:00Z' });
+    const newNode = node({ id: 'new', ts: '2026-08-20T00:00:00Z', body: oldNode.body });
+    store.upsertNodes([oldNode, newNode]);
+    await embedAllPending();
+
+    const deadSlm = { identity: 'dead', complete: async () => null };
+    await checkContradictions(store, embedder, deadSlm, PROJECT, [staleCandidate(oldNode)]);
+
+    expect(store.hasContradictionCheck('old', 'new')).toBe(false);
+  });
 });

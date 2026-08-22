@@ -51,6 +51,7 @@ import {
   countNodesNeedingEmbedding,
   dropAllEmbeddings,
   findNodesNeedingEmbedding,
+  getEmbedding,
   upsertEmbedding,
   vectorSearch,
   type EmbeddableNode,
@@ -277,6 +278,11 @@ export class MemoryStore {
 
   upsertEmbedding(rowid: number, embedding: Float32Array): void {
     upsertEmbedding(this.db, rowid, embedding);
+  }
+
+  /** The stored vector for one node, or null if it has not been embedded yet. */
+  getEmbedding(nodeId: string): Float32Array | null {
+    return getEmbedding(this.db, nodeId);
   }
 
   dropAllEmbeddings(): number {
