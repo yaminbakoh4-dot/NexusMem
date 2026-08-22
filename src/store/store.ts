@@ -309,7 +309,7 @@ export class MemoryStore {
     setSupersedes(this.db, newNodeId, staleNodeId);
   }
 
-  /** Aging `inferred` nodes nothing supersedes yet -- candidates for `nexusmem mark-stale`, not auto-applied. */
+  /** Aging non-`observed` nodes nothing supersedes yet -- candidates for `nexusmem mark-stale`, not auto-applied. */
   listStaleCandidates(projectId: string, opts: { now?: Date; minAgeDays?: number; limit?: number } = {}): StaleCandidate[] {
     return listStaleCandidates(this.db, projectId, opts);
   }

@@ -93,7 +93,7 @@ export function toMemoryNodes(file: RawDocFile, projectId: string, opts: DocsCol
       body: truncate(chunk.text, maxBody),
       files: [{ path: file.path, insertions: null, deletions: null, binary: false }],
       signal: scoreDocSection(file.path, chunk.heading, chunk.text),
-      provenance: 'inferred', // a written claim, and the kind of content most likely to go stale
+      provenance: 'authored', // a human's own written claim -- deliberate, but can still go stale
       meta: {
         path: file.path,
         heading: chunk.heading,

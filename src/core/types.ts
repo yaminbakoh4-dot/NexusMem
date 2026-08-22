@@ -15,8 +15,12 @@ export type NodeKind =
   | 'doc_section'
   | 'session_summary';
 
-/** Whether a node records something that actually happened, or something derived/guessed from that. Set per-collector at ingest time. */
-export type Provenance = 'observed' | 'inferred';
+/**
+ * Trust tier, highest first: `observed` (the event itself), `authored` (a
+ * human's own written claim), `recorded` (verbatim discourse about events),
+ * `derived` (a model's distillation). Set per-collector at ingest time.
+ */
+export type Provenance = 'observed' | 'authored' | 'recorded' | 'derived';
 
 /** Fallback for nodes written without an explicit `provenance` (older callers, test fixtures). */
 export function defaultProvenanceForKind(kind: NodeKind): Provenance {
@@ -25,11 +29,13 @@ export function defaultProvenanceForKind(kind: NodeKind): Provenance {
     case 'code_diff':
     case 'shell_command':
       return 'observed';
-    case 'conversation_turn':
-    case 'session_summary':
     case 'doc_section':
     case 'note':
-      return 'inferred';
+      return 'authored';
+    case 'conversation_turn':
+      return 'recorded';
+    case 'session_summary':
+      return 'derived';
   }
 }
 

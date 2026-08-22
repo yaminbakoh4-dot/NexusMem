@@ -249,7 +249,7 @@ program
 
 program
   .command('stale')
-  .description('List inferred nodes old enough to be worth double-checking (writes nothing)')
+  .description('List unconfirmed (non-observed) nodes old enough to be worth double-checking (writes nothing)')
   .option('-C, --cwd <path>', 'repository path', process.cwd())
   .option('--min-age-days <days>', 'only nodes at least this old', (v) => Number.parseFloat(v))
   .option('-n, --limit <count>', 'stop after N candidates', (v) => Number.parseInt(v, 10))

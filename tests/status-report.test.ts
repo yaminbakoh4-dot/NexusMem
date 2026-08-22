@@ -138,7 +138,7 @@ describe('status report body', () => {
     store.close();
 
     const output = await statusOutput();
-    expect(output).toMatch(/aging\s+1 inferred node\(s\) worth a look/);
+    expect(output).toMatch(/aging\s+1 unconfirmed node\(s\) worth a look/);
     expect(output).toContain('nexusmem stale');
   });
 

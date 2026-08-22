@@ -24,7 +24,7 @@ export interface StaleOptions {
 export const STALE_DEFAULT_MODEL = DEFAULT_SLM_MODEL;
 
 /**
- * `nexusmem stale`. Lists inferred nodes old enough that nothing has
+ * `nexusmem stale`. Lists non-observed nodes old enough that nothing has
  * confirmed they still hold -- a heuristic surfacing list by default, not
  * contradiction detection. With `--check-contradictions`, candidates that
  * have a similar newer node the SLM judges as actually contradicting them
@@ -41,7 +41,7 @@ export async function runStale(opts: StaleOptions): Promise<number> {
     const candidates = store.listStaleCandidates(projectId, { minAgeDays: opts.minAgeDays, limit: opts.limit });
 
     if (candidates.length === 0) {
-      out(`${pc.dim('no stale candidates')} -- no inferred node older than the threshold lacks a successor\n`);
+      out(`${pc.dim('no stale candidates')} -- no unconfirmed node older than the threshold lacks a successor\n`);
       return 0;
     }
 

@@ -284,7 +284,7 @@ export function setSupersedes(db: Database, newNodeId: string, staleNodeId: stri
   db.prepare('UPDATE nodes SET supersedes = ? WHERE id = ?').run(staleNodeId, newNodeId);
 }
 
-/** An `inferred` node old enough to be a candidate for `nexusmem mark-stale`, oldest first. */
+/** A non-`observed` node old enough to be a candidate for `nexusmem mark-stale`, oldest first. */
 export interface StaleCandidate {
   id: string;
   kind: NodeKind;
@@ -295,7 +295,7 @@ export interface StaleCandidate {
 }
 
 /**
- * Heuristic surfacing only, not contradiction detection: every `inferred`
+ * Heuristic surfacing only, not contradiction detection: every non-`observed`
  * node past `minAgeDays` that nothing already supersedes. A human still
  * decides whether it's actually stale and runs `mark-stale` themselves.
  */
@@ -312,7 +312,7 @@ export function listStaleCandidates(
     .prepare(
       `SELECT id, kind, ts, ts_epoch AS tsEpoch, source, title
        FROM nodes
-       WHERE project_id = @projectId AND provenance = 'inferred' AND ts_epoch < @cutoff
+       WHERE project_id = @projectId AND provenance != 'observed' AND ts_epoch < @cutoff
          AND id NOT IN (SELECT supersedes FROM nodes WHERE project_id = @projectId AND supersedes IS NOT NULL)
        ORDER BY ts_epoch ASC
        LIMIT @limit`,
@@ -345,7 +345,7 @@ export function countStaleCandidates(db: Database, projectId: string, opts: { no
   const row = db
     .prepare(
       `SELECT COUNT(*) AS count FROM nodes
-       WHERE project_id = @projectId AND provenance = 'inferred' AND ts_epoch < @cutoff
+       WHERE project_id = @projectId AND provenance != 'observed' AND ts_epoch < @cutoff
          AND id NOT IN (SELECT supersedes FROM nodes WHERE project_id = @projectId AND supersedes IS NOT NULL)`,
     )
     .get({ projectId, cutoff }) as { count: number };

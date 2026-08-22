@@ -55,25 +55,26 @@ describe('rankHits', () => {
     expect(ranked[1]!.recencyFactor).toBeGreaterThanOrEqual(0.3); // floor, never zero
   });
 
-  it('decays an inferred node faster than an observed one of the same age, relevance and signal', () => {
+  it('decays each lower trust tier faster than the one above it at equal age, relevance and signal', () => {
     const age45d = new Date(NOW.getTime() - 45 * 86_400_000).toISOString();
     const ranked = rankHits(
       [
+        hit({ id: 'derived', rank: -2, ts: age45d, provenance: 'derived' }),
         hit({ id: 'observed', rank: -2, ts: age45d, provenance: 'observed' }),
-        hit({ id: 'inferred', rank: -2, ts: age45d, provenance: 'inferred' }),
+        hit({ id: 'recorded', rank: -2, ts: age45d, provenance: 'recorded' }),
+        hit({ id: 'authored', rank: -2, ts: age45d, provenance: 'authored' }),
       ],
       { now: NOW, halfLifeDays: 30 },
     );
-    expect(ranked.map((r) => r.id)).toEqual(['observed', 'inferred']);
-    expect(ranked[1]!.recencyFactor).toBeLessThan(ranked[0]!.recencyFactor);
+    expect(ranked.map((r) => r.id)).toEqual(['observed', 'authored', 'recorded', 'derived']);
   });
 
-  it('respects an explicit inferredHalfLifeDays override instead of deriving it from halfLifeDays', () => {
+  it('respects an explicit halfLifeRatios override instead of the built-in per-tier defaults', () => {
     const age10d = new Date(NOW.getTime() - 10 * 86_400_000).toISOString();
-    const ranked = rankHits([hit({ id: 'a', rank: -2, ts: age10d, provenance: 'inferred' })], {
+    const ranked = rankHits([hit({ id: 'a', rank: -2, ts: age10d, provenance: 'recorded' })], {
       now: NOW,
       halfLifeDays: 30,
-      inferredHalfLifeDays: 30, // same as observed -- no extra decay
+      halfLifeRatios: { recorded: 1 }, // same as observed -- no extra decay
     });
     // 2**(-10/30) blended into [0.3, 1]
     expect(ranked[0]!.recencyFactor).toBeCloseTo(0.3 + 0.7 * 2 ** (-10 / 30), 5);
@@ -344,12 +345,12 @@ describe('renderContextBlock', () => {
     expect(block).toContain('detail line');
   });
 
-  it('tags an observed node and an inferred node differently, so fact and inference are distinguishable at a glance', () => {
+  it('tags each node with its trust tier, so fact and derivation are distinguishable at a glance', () => {
     const observed = ranked({ id: 'a', title: 'observed one', provenance: 'observed' });
-    const inferred = ranked({ id: 'b', title: 'inferred one', provenance: 'inferred' });
-    const block = renderContextBlock('q', packContext([observed, inferred], 2000));
+    const derived = ranked({ id: 'b', title: 'derived one', provenance: 'derived' });
+    const block = renderContextBlock('q', packContext([observed, derived], 2000));
     expect(block).toContain('[observed]');
-    expect(block).toContain('[inferred]');
+    expect(block).toContain('[derived]');
   });
 });
 

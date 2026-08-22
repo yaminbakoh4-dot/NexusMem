@@ -208,6 +208,18 @@ UPDATE nodes SET provenance = 'observed' WHERE kind IN ('git_commit', 'code_diff
 CREATE INDEX idx_nodes_supersedes ON nodes (supersedes) WHERE supersedes IS NOT NULL;
 `;
 
+// Provenance widened from 2 tiers (observed/inferred) to 4 (observed >
+// authored > recorded > derived). Backfilled by kind for the same reason V6
+// gives; the final catch-all folds any leftover 'inferred' (a kind this
+// version no longer writes) into the middle tier rather than leaving a value
+// the ranker no longer understands.
+const V7 = `
+UPDATE nodes SET provenance = 'authored' WHERE kind IN ('doc_section', 'note');
+UPDATE nodes SET provenance = 'recorded' WHERE kind = 'conversation_turn';
+UPDATE nodes SET provenance = 'derived'  WHERE kind = 'session_summary';
+UPDATE nodes SET provenance = 'recorded' WHERE provenance = 'inferred';
+`;
+
 interface Migration {
   version: number;
   up: (db: Database) => void;
@@ -221,6 +233,7 @@ export const MIGRATIONS: Migration[] = [
   { version: 4, up: (db) => db.exec(V4) },
   { version: 5, up: (db) => db.exec(V5) },
   { version: 6, up: (db) => db.exec(V6) },
+  { version: 7, up: (db) => db.exec(V7) },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

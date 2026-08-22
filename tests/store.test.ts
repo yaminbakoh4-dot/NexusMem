@@ -142,16 +142,19 @@ describe('MemoryStore provenance', () => {
     expect(row.provenance).toBe('observed');
   });
 
-  it('defaults an inferred kind (conversation_turn) to "inferred" when the node omits provenance', () => {
-    store.upsertNodes([node({ id: 'a', kind: 'conversation_turn' })]);
-    const row = store.raw.prepare('SELECT provenance FROM nodes WHERE id = ?').get('a') as { provenance: string };
-    expect(row.provenance).toBe('inferred');
+  it('defaults conversation_turn to "recorded" and session_summary to "derived" when the node omits provenance', () => {
+    store.upsertNodes([node({ id: 'a', kind: 'conversation_turn' }), node({ id: 'b', kind: 'session_summary' })]);
+    const rows = store.raw.prepare('SELECT id, provenance FROM nodes ORDER BY id').all() as Array<{ id: string; provenance: string }>;
+    expect(rows).toEqual([
+      { id: 'a', provenance: 'recorded' },
+      { id: 'b', provenance: 'derived' },
+    ]);
   });
 
   it('respects an explicit provenance over the kind-based default', () => {
     store.upsertNodes([node({ id: 'a', kind: 'doc_section', provenance: 'observed' })]);
     const row = store.raw.prepare('SELECT provenance FROM nodes WHERE id = ?').get('a') as { provenance: string };
-    expect(row.provenance).toBe('observed'); // doc_section defaults to 'inferred'
+    expect(row.provenance).toBe('observed'); // doc_section defaults to 'authored'
   });
 
   it('surfaces provenance on search/vectorSearch/listRecentNodes/getNodesByIds results', () => {

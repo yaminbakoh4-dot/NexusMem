@@ -15,7 +15,7 @@ const PROJECT = 'proj-a';
 const node = (overrides: Partial<MemoryNode> & Pick<MemoryNode, 'id'>): MemoryNode => ({
   kind: 'conversation_turn',
   projectId: PROJECT,
-  provenance: 'inferred',
+  provenance: 'recorded',
   ts: '2026-08-01T00:00:00Z',
   source: 'conversation:claude-code',
   title: 'Decided to use SQLite',

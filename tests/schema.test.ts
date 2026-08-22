@@ -65,8 +65,13 @@ describe('migrate (V5 -> V6 provenance backfill against real pre-existing data)'
     insert.run({ ...base, id: 'n-summary', kind: 'session_summary' });
     insert.run({ ...base, id: 'n-doc', kind: 'doc_section' });
 
-    const result = migrate(db);
-    expect(result).toEqual({ from: 5, to: 6 });
+    // Replay only step 6 (not `migrate()`, which would run V7's re-backfill
+    // on top and hide what V6 itself wrote) -- V6's own output is the claim.
+    const v6 = MIGRATIONS.find((m) => m.version === 6)!;
+    db.transaction(() => {
+      v6.up(db);
+      db.pragma('user_version = 6');
+    })();
     expect(currentSchemaVersion(db)).toBe(6);
 
     const rows = db
@@ -92,6 +97,50 @@ describe('migrate (V5 -> V6 provenance backfill against real pre-existing data)'
 
     const indexes = db.prepare(`SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'nodes'`).all() as Array<{ name: string }>;
     expect(indexes.map((i) => i.name)).toContain('idx_nodes_supersedes');
+
+    db.close();
+  });
+
+  it('widens 2-tier provenance to 4 tiers on a real, already-backfilled V6 database (V6 -> V7)', () => {
+    const db = new Database(dbPath);
+    db.pragma('foreign_keys = ON');
+    sqliteVec.load(db);
+
+    for (const m of MIGRATIONS) {
+      if (m.version > 6) continue;
+      db.transaction(() => {
+        m.up(db);
+        db.pragma(`user_version = ${m.version}`);
+      })();
+    }
+    expect(currentSchemaVersion(db)).toBe(6);
+
+    // Seeded *after* V6 ran, so every row carries the exact 2-tier values a
+    // real upgrading user's database holds: observed by kind, else inferred.
+    const insert = db.prepare(`
+      INSERT INTO nodes (id, kind, project_id, ts, ts_epoch, source, title, body, signal, meta, provenance, created_at)
+      VALUES (@id, @kind, 'proj-a', '2026-01-01T00:00:00+00:00', 1, 'git', 't', 'b', 0.5, '{}', @provenance, 1)
+    `);
+    insert.run({ id: 'n-git', kind: 'git_commit', provenance: 'observed' });
+    insert.run({ id: 'n-conv', kind: 'conversation_turn', provenance: 'inferred' });
+    insert.run({ id: 'n-summary', kind: 'session_summary', provenance: 'inferred' });
+    insert.run({ id: 'n-doc', kind: 'doc_section', provenance: 'inferred' });
+    insert.run({ id: 'n-note', kind: 'note', provenance: 'inferred' });
+    // Unknown kind still marked inferred -- the catch-all's target.
+    insert.run({ id: 'n-mystery', kind: 'mystery', provenance: 'inferred' });
+
+    const result = migrate(db);
+    expect(result).toEqual({ from: 6, to: 7 });
+
+    const rows = db.prepare('SELECT id, provenance FROM nodes ORDER BY id').all() as Array<{ id: string; provenance: string }>;
+    expect(Object.fromEntries(rows.map((r) => [r.id, r.provenance]))).toEqual({
+      'n-git': 'observed',
+      'n-conv': 'recorded',
+      'n-summary': 'derived',
+      'n-doc': 'authored',
+      'n-note': 'authored',
+      'n-mystery': 'recorded',
+    });
 
     db.close();
   });

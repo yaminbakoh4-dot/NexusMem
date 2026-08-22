@@ -125,7 +125,7 @@ export async function runStatus(opts: StatusOptions): Promise<number> {
           : '',
         structure.edges ? `${pc.dim('structure')} ${pc.bold(String(structure.edges))} import edge(s) across ${structure.files} file(s)` : '',
         staleCount
-          ? `${pc.dim('aging   ')} ${pc.bold(String(staleCount))} inferred node(s) worth a look — run ${pc.bold('nexusmem stale')}`
+          ? `${pc.dim('aging   ')} ${pc.bold(String(staleCount))} unconfirmed node(s) worth a look — run ${pc.bold('nexusmem stale')}`
           : '',
       ]
         .filter((line) => line !== '')

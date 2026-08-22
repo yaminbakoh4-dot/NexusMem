@@ -1,3 +1,4 @@
+import type { Provenance } from '../core/types.js';
 import type { SearchHit } from '../store/store.js';
 
 export interface RankedHit extends SearchHit {
@@ -20,11 +21,8 @@ export interface RankedHit extends SearchHit {
 export interface RankOptions {
   /** Days for an `observed` node's recency factor to halve. Default 30. */
   halfLifeDays?: number;
-  /**
-   * Days for an `inferred` node's recency factor to halve. Defaults to
-   * `halfLifeDays * INFERRED_HALF_LIFE_RATIO` when omitted.
-   */
-  inferredHalfLifeDays?: number;
+  /** Per-tier multipliers on `halfLifeDays`; merged over `HALF_LIFE_RATIO`'s defaults. */
+  halfLifeRatios?: Partial<Record<Provenance, number>>;
   /** Injectable for deterministic tests; defaults to the real clock. */
   now?: Date;
   /**
@@ -53,8 +51,17 @@ const RECENCY_FLOOR = 0.3;
 const DEFAULT_HALF_LIFE_DAYS = 30;
 const MS_PER_DAY = 86_400_000;
 
-/** `inferred` nodes decay twice as fast as `observed` ones -- a judgment call, not a measured optimum. */
-const INFERRED_HALF_LIFE_RATIO = 0.5;
+/**
+ * Half-life multiplier per trust tier -- the lower the trust, the faster the
+ * decay. The exact ratios are judgment calls, not measured optima; only the
+ * ordering (observed > authored > recorded > derived) is the design claim.
+ */
+const HALF_LIFE_RATIO: Record<Provenance, number> = {
+  observed: 1,
+  authored: 0.75,
+  recorded: 0.5,
+  derived: 0.35,
+};
 
 /** Flat down-weight for a superseded node -- not near-zero, since it must stay reachable if it's still the best match. */
 const SUPERSEDED_PENALTY = 0.5;
@@ -151,7 +158,7 @@ export function rankHits(hits: readonly SearchHit[], opts: RankOptions = {}): Ra
   if (hits.length === 0) return [];
 
   const halfLife = opts.halfLifeDays ?? DEFAULT_HALF_LIFE_DAYS;
-  const inferredHalfLife = opts.inferredHalfLifeDays ?? halfLife * INFERRED_HALF_LIFE_RATIO;
+  const ratios = { ...HALF_LIFE_RATIO, ...opts.halfLifeRatios };
   const now = opts.now ?? new Date();
   const relevances = opts.relevanceScores ? normalizeExternalRelevance(hits, opts.relevanceScores) : normalizeRelevance(hits);
 
@@ -159,7 +166,7 @@ export function rankHits(hits: readonly SearchHit[], opts: RankOptions = {}): Ra
     const relevance = relevances[i] ?? RELEVANCE_FLOOR;
     const signalWeight = SIGNAL_FLOOR + (1 - SIGNAL_FLOOR) * hit.signal;
     const ageDays = ageDaysOf(hit.ts, now);
-    const effectiveHalfLife = hit.provenance === 'inferred' ? inferredHalfLife : halfLife;
+    const effectiveHalfLife = halfLife * (ratios[hit.provenance] ?? 1);
     const recencyFactor = RECENCY_FLOOR + (1 - RECENCY_FLOOR) * 2 ** (-ageDays / effectiveHalfLife);
 
     const rawScore = relevance * signalWeight ** SIGNAL_EXPONENT * recencyFactor ** RECENCY_EXPONENT;

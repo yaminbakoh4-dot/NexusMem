@@ -131,7 +131,7 @@ export function toMemoryNodes(
       body: truncate(body, maxBody),
       files: extractMentionedFiles(`${userRedacted.text}\n${chunk.text}`),
       signal: scoreConversationTurn(userRedacted.text, chunk.text),
-      provenance: 'inferred', // discourse about what happened, not the event itself
+      provenance: 'recorded', // verbatim discourse about what happened, not the event itself
       meta: {
         cwd: turn.cwd,
         source: turn.source,
