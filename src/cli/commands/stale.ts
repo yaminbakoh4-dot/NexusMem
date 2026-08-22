@@ -56,7 +56,16 @@ export async function runStale(opts: StaleOptions): Promise<number> {
         { model: opts.model ?? DEFAULT_SLM_MODEL },
       );
     }
-    const byCandidateId = new Map(suggestions.map((s) => [s.candidateId, s]));
+
+    // Standing YES verdicts (recorded by an earlier run or by sync's
+    // automatic leg) decorate the plain listing too -- reading them costs
+    // nothing, so `stale` without the flag stays instant and network-free
+    // while still showing everything already judged.
+    const byCandidateId = new Map<string, Pick<ContradictionSuggestion, 'againstId' | 'againstTitle' | 'reason'>>();
+    for (const s of store.listContradictionSuggestions(projectId)) {
+      byCandidateId.set(s.candidateId, { againstId: s.againstId, againstTitle: s.againstTitle, reason: s.reason ?? '' });
+    }
+    for (const s of suggestions) byCandidateId.set(s.candidateId, s);
 
     out(
       [

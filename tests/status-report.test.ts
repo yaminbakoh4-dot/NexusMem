@@ -142,6 +142,37 @@ describe('status report body', () => {
     expect(output).toContain('nexusmem stale');
   });
 
+  it('surfaces the flagged line once a contradiction suggestion is on record', async () => {
+    await runInit({ cwd: dir, force: false, hook: false, enableConversation: false, out: () => {} });
+    await runSync({ cwd: dir, full: true, rebuild: false, noEmbed: true, quiet: true, out: () => {} });
+
+    const { ws, projectId } = await loadContext(dir);
+    const store = MemoryStore.open(ws.dbPath);
+    const base = {
+      kind: 'session_summary' as const,
+      projectId,
+      source: 'conversation:claude-code',
+      files: [],
+      signal: 0.5,
+      meta: {},
+    };
+    store.upsertNodes([
+      { ...base, id: 'old-claim', ts: '2026-01-01T00:00:00Z', title: 'old claim', body: 'old claim' },
+      { ...base, id: 'newer-evidence', ts: '2026-02-01T00:00:00Z', title: 'newer evidence', body: 'newer evidence' },
+    ]);
+    store.recordContradictionCheck({
+      candidateId: 'old-claim',
+      againstId: 'newer-evidence',
+      contradicts: true,
+      reason: 'reversed',
+      model: 'test-model',
+    });
+    store.close();
+
+    const output = await statusOutput();
+    expect(output).toMatch(/flagged\s+1 likely-superseded node\(s\) awaiting review/);
+  });
+
   it('surfaces the chains line with a real failure/retry pair, including the link-more nudge for a still-unresolved failure', async () => {
     await runInit({ cwd: dir, force: false, hook: false, enableConversation: false, out: () => {} });
     await runSync({ cwd: dir, full: true, rebuild: false, noEmbed: true, quiet: true, out: () => {} });

@@ -82,6 +82,7 @@ export async function runStatus(opts: StatusOptions): Promise<number> {
     const otherProjectNodes = store.countProjectNodes(otherProjectIds);
     const structure = store.fileEdgeStats(projectId);
     const staleCount = store.countStaleCandidates(projectId);
+    const flaggedCount = store.countContradictionSuggestions(projectId);
 
     // WAL content counts towards what is actually on disk.
     const dbBytes = fileSize(ws.dbPath) + fileSize(`${ws.dbPath}-wal`);
@@ -126,6 +127,9 @@ export async function runStatus(opts: StatusOptions): Promise<number> {
         structure.edges ? `${pc.dim('structure')} ${pc.bold(String(structure.edges))} import edge(s) across ${structure.files} file(s)` : '',
         staleCount
           ? `${pc.dim('aging   ')} ${pc.bold(String(staleCount))} unconfirmed node(s) worth a look — run ${pc.bold('nexusmem stale')}`
+          : '',
+        flaggedCount
+          ? `${pc.dim('flagged ')} ${pc.bold(String(flaggedCount))} likely-superseded node(s) awaiting review — run ${pc.bold('nexusmem stale')} for detail`
           : '',
       ]
         .filter((line) => line !== '')

@@ -96,6 +96,33 @@ describe('nexusmem stale', () => {
     expect(text).toMatch(/mark-stale/);
   });
 
+  it('decorates the plain listing with a standing YES verdict, no --check-contradictions needed', async () => {
+    const veryOld = new Date(Date.now() - 100 * 86_400_000).toISOString();
+    seed([
+      node(projectId, { id: 'old-claim', title: 'stale claim' }),
+      node(projectId, { id: 'newer-evidence', title: 'newer evidence', ts: veryOld }),
+    ]);
+
+    const ws = resolveWorkspace(dir);
+    const store = MemoryStore.open(ws.dbPath);
+    store.recordContradictionCheck({
+      candidateId: 'old-claim',
+      againstId: 'newer-evidence',
+      contradicts: true,
+      reason: 'the decision was reversed',
+      model: 'test-model',
+    });
+    store.close();
+
+    const chunks: string[] = [];
+    await runStale({ cwd: dir, minAgeDays: 45, out: (c) => chunks.push(c) });
+
+    const text = chunks.join('');
+    expect(text).toMatch(/likely superseded by/);
+    expect(text).toMatch(/newer evidence/);
+    expect(text).toMatch(/the decision was reversed/);
+  });
+
   it('omits a node that mark-stale already superseded', async () => {
     const veryOld = new Date(Date.now() - 100 * 86_400_000).toISOString();
     seed([
