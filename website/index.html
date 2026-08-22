@@ -206,8 +206,8 @@ npx nexusmem sync</pre>
         <div class="icon-chip" aria-hidden="true">
           <svg viewBox="0 0 24 24" fill="none" stroke="url(#brand-gradient)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.3" stroke-dasharray="2 2.5"/><circle cx="18" cy="18" r="2.3"/><path d="M8.2 7.8l7.6 7.6"/></svg>
         </div>
-        <h3>Provenance &amp; manual staleness</h3>
-        <p>Every node is tagged <code>[observed]</code> or <code>[inferred]</code>. <code>mark-stale</code> links a superseded node to its replacement — the ranker down-weights it without deleting it.</p>
+        <h3>Provenance &amp; staleness</h3>
+        <p>Every node carries a trust tier — <code>observed</code>, <code>authored</code>, <code>recorded</code>, <code>derived</code> — that decays at its own rate. A local model checks for contradictions automatically on sync and flags what it finds; <code>mark-stale</code> is what actually retires a node.</p>
       </div>
       <div class="card reveal">
         <div class="icon-chip" aria-hidden="true">
@@ -390,6 +390,8 @@ npx nexusmem query "why did the retry fail"</pre>
       <dd>Wrap PowerShell to capture exit codes and timestamps exactly.</dd>
       <dt>forget &lt;value&gt;</dt>
       <dd>Delete every node matching a value and deny-list it, so it can't come back.</dd>
+      <dt>stale</dt>
+      <dd>List aging nodes and any contradictions a local model has flagged. Add <code>--check-contradictions</code> to check now instead of waiting for the next sync.</dd>
       <dt>mark-stale &lt;id&gt;</dt>
       <dd>Link a superseded node to its replacement; the ranker down-weights it.</dd>
       <dt>mcp</dt>
