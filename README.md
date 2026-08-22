@@ -383,14 +383,16 @@ search happens to surface) is still an open problem, and nothing here supersedes
 
 `init`, `sync`, `query <text>`, `status` (add `--share` for a plain-text summary worth pasting
 somewhere), `projects`, `mcp`, `forget <value>`, `stale` (add `--check-contradictions` for a local-SLM
-content check, see above), `mark-stale <nodeId> --supersedes <newNodeId>`, and
-`hook install|remove|status`.
+content check, see above), `mark-stale <nodeId> --supersedes <newNodeId>`, `precheck` (advisory —
+warns about staged files with an unresolved past failure or high recent churn; exits 0 unless
+`--strict`), `hook install|remove|status` (the PowerShell exit-code hook), and
+`hook git install|remove|status` (a git pre-commit hook that runs `precheck` before each commit).
 
-There are also five dry-run previews (`scan-git`, `scan-diff`, `scan-shell`, `scan-docs`,
-`scan-conversation`)
-that write nothing and print the nodes ingestion *would* create along with their signal scores. That
-is the intended way to tune scoring against a real repository before committing to a change. Add
-`--json` to pipe them somewhere.
+There are also seven dry-run previews (`scan-git`, `scan-diff`, `scan-shell`, `scan-docs`,
+`scan-conversation`, `scan-session`, `scan-structure`) that write nothing and print what ingestion
+*would* produce — nodes and their signal scores for the first six, import-graph edges for
+`scan-structure`. That is the intended way to tune scoring against a real repository before
+committing to a change. Add `--json` to pipe them somewhere.
 
 Every command takes `-C <path>` to target another repository. On `sync`, `--conversation` opts the
 transcript source in for one run without persisting it, `--no-embed` skips the vector pass,
@@ -458,7 +460,7 @@ Deleting `.nexusmem/` loses nothing that `sync` cannot rebuild.
 
 ## Status
 
-Ingestion, hybrid retrieval, budgeted packing and the MCP server all work and are covered by 493
+Ingestion, hybrid retrieval, budgeted packing and the MCP server all work and are covered by 701
 tests running on Linux and Windows across Node 22 and 24.
 
 ## Development
