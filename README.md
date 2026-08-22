@@ -24,7 +24,7 @@ exists nowhere else, and it disappears when your terminal scrollback rolls over.
 **Contents:** [Try it](#try-it) · [Exact shell capture](#optional-exact-shell-capture) ·
 [Failure → fix chains](#failure--fix-chains-opt-in) · [How retrieval works](#how-retrieval-works) ·
 [Session summaries](#session-summaries-optional-local-model) · [Use it from an agent](#use-it-from-an-agent)
-· [What it costs you](#what-it-costs-you) · [Manual staleness & provenance](#manual-staleness--provenance) ·
+· [What it costs you](#what-it-costs-you) · [Staleness & provenance](#staleness--provenance) ·
 [Where it breaks](#where-it-breaks) · [Commands](#commands) · [Cross-project recall](#recall-across-projects)
 · [On disk](#on-disk) · [Development](#development)
 
@@ -48,11 +48,11 @@ Relevant history for: windows spawn failure
   readRepoInfo collapsed three unrelated failures into one error: git running and reporting
   the path is not a work tree, git not being installed, and the process failing to spawn at
   all. Dogfooding hit the third case in two separate sessions...
-- 2026-08-09 [inferred] README.md — Before a tagged release
+- 2026-08-09 [authored] README.md — Before a tagged release
   - [ ] Retry on transient process-spawn failures on Windows
 ```
 
-`[observed]`/`[inferred]` is the provenance tag (see [Manual staleness & provenance](#manual-staleness--provenance))
+`[observed]`/`[authored]` is the provenance tag (see [Staleness & provenance](#staleness--provenance))
 — a commit is a directly observed event, a doc section is a written claim that could go stale.
 
 A commit and a docs section, ranked against each other, inside whatever token budget you gave it.
@@ -269,19 +269,23 @@ Two things a memory layer needs and this one only partly has: a way to tell an o
 guess, and a way to retire a conclusion once something contradicts it. This section is what exists
 and what doesn't.
 
-Every node carries a `provenance`: `observed` (a commit that landed, a shell command's real exit
-code) or `inferred` (a conversation turn, a session summary, a doc section — all readable as claims
-that could be wrong or go stale). Set once per collector at ingest time, shown as a `[observed]` /
-`[inferred]` tag on every query result, and now used to decay retrieval weight too — `inferred` nodes
-fade from ranking twice as fast as `observed` ones as they age.
+Every node carries a `provenance`, a four-tier trust hierarchy set once per collector at ingest
+time: `observed` (a commit that landed, a shell command's real exit code) > `authored` (a doc
+section — a human's own written claim) > `recorded` (a conversation turn — verbatim, but talk about
+events rather than the events) > `derived` (a session summary — a model's distillation). The tier is
+shown as a tag on every query result and decays retrieval weight — the lower the trust, the faster a
+node fades from ranking as it ages. The ordering is the design claim; the exact decay ratios are
+judgment calls, not measured optima.
 
 ```bash
 nexusmem stale
 ```
 
-Lists `inferred` nodes old enough (45+ days by default) that nothing has confirmed they still hold —
-a heuristic on age and provenance, not on content. It writes nothing; you decide which candidates are
-actually wrong.
+Lists non-`observed` nodes old enough (45+ days by default) that nothing has confirmed they still
+hold — a heuristic on age and provenance, not on content. It writes nothing; you decide which
+candidates are actually wrong. Any candidate the SLM has already flagged (see below) is decorated
+with its standing `likely superseded by` suggestion — reading those costs nothing, so the plain
+command stays instant and offline.
 
 ```bash
 nexusmem mark-stale <oldNodeId> --supersedes <newNodeId>
@@ -297,15 +301,20 @@ nexusmem stale --check-contradictions
 For each candidate, finds the most similar newer node (local embedding search) and asks a local SLM
 (Ollama, `qwen2.5:3b` by default) whether it actually contradicts the older one — real content
 comparison, not just age. A match is printed as `likely superseded by <id> <title> -- <reason>`
-under the candidate; nothing is written, same as plain `stale`. Needs Ollama running; costs one
-embedding call and, when a plausible newer node exists, one chat completion per candidate (capped at
-10 by default — pass `-n` to raise it).
+under the candidate. Every judgment (either verdict) is memoized, so a judged pair is never sent to
+the model again; nothing else is written — `supersedes` stays yours to set via `mark-stale`.
+
+**This also runs automatically during `sync`** — at most 3 new judgments per run (configurable via
+the `contradictions` block in `.nexusmem/config.json`; set `autoCheck: false` to turn it off), only
+when the embedding provider was reachable anyway, and free on repeat syncs thanks to the
+memoization. New and open suggestions show up in the sync summary, `nexusmem status` (a `flagged`
+line), and plain `nexusmem stale`.
 
 **What this doesn't do:** it is one small model's yes/no judgment on one older/newer pair, not a
 verified fact — treat a match as a lead to check, not a conclusion. It also only ever compares a
 candidate against nodes *found by embedding similarity*; a contradiction from an unrelated-sounding
-node would never surface. Real contradiction detection (comprehensively, not just for the pair the
-vector search happens to surface) is still an open problem.
+node would never surface. Comprehensive contradiction detection (not just for the pair the vector
+search happens to surface) is still an open problem, and nothing here supersedes a node on its own.
 
 ## Where it breaks
 

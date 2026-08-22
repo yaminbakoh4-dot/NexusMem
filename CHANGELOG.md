@@ -9,7 +9,26 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
 
 ## [Unreleased]
 
-No unreleased changes yet.
+### Added
+
+- Provenance widened from 2 tiers to a 4-tier trust hierarchy: `observed` (commits, diffs, shell
+  exit codes) > `authored` (doc sections — human-written claims) > `recorded` (conversation turns —
+  verbatim discourse) > `derived` (session summaries — a model's distillation). Schema V7 backfills
+  existing databases by kind. The ranker decays each tier at its own rate (lower trust fades
+  faster); the ordering is the design claim, the exact ratios are documented judgment calls.
+- Contradiction checking now runs automatically during `sync`: at most 3 new SLM judgments per run
+  (`contradictions.maxPerSync`; `contradictions.autoCheck: false` turns it off), gated on the
+  embedding provider already being reachable. Every judgment — either verdict — is memoized in a new
+  `contradiction_checks` table (schema V8), so a judged pair is never sent to the model again and
+  repeat syncs converge to zero model calls. Measured live against this repo's own database: 5.4s
+  for the first 10 judgments, 0.5s for the identical re-run. Still suggest-only: nothing ever writes
+  `supersedes` automatically.
+- Standing suggestions now surface everywhere without a model in the loop: plain `nexusmem stale`
+  decorates flagged candidates from the memoized judgments (instant, offline), `nexusmem status`
+  gains a `flagged` line, and the sync summary reports new/open suggestion counts.
+- `stale --check-contradictions` reuses each candidate's stored embedding instead of re-embedding
+  it, and stops after two consecutive null SLM replies so a down provider costs at most two timeouts
+  rather than one per candidate.
 
 ## [0.7.0] — 2026-08-21
 
