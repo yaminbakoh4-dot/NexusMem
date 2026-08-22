@@ -9,6 +9,10 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
 
 ## [Unreleased]
 
+No unreleased changes yet.
+
+## [0.8.0] — 2026-08-22
+
 ### Added
 
 - Provenance widened from 2 tiers to a 4-tier trust hierarchy: `observed` (commits, diffs, shell
@@ -500,7 +504,8 @@ First public release.
   there is no local-model summarization pass, and the conversation collector has never been audited
   for the stale-node bug that was found and fixed in the docs collector.
 
-[Unreleased]: https://github.com/yaminbkk/NexusMem/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/yaminbkk/NexusMem/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/yaminbkk/NexusMem/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/yaminbkk/NexusMem/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/yaminbkk/NexusMem/compare/v0.5.4...v0.6.0
 [0.5.4]: https://github.com/yaminbkk/NexusMem/compare/v0.5.3...v0.5.4
