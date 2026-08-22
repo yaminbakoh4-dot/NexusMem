@@ -278,6 +278,74 @@ describe('MemoryStore.listStaleCandidates', () => {
   });
 });
 
+describe('MemoryStore contradiction checks', () => {
+  let dir: string;
+  let store: MemoryStore;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'nexusmem-'));
+    store = MemoryStore.open(join(dir, 'memory.db'));
+    store.upsertNodes([
+      node({ id: 'old', kind: 'session_summary', title: 'old claim' }),
+      node({ id: 'newer', kind: 'session_summary', title: 'newer claim' }),
+    ]);
+  });
+
+  afterEach(() => {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const yes = { candidateId: 'old', againstId: 'newer', contradicts: true, reason: 'directly reverses it', model: 'test-model' };
+
+  it('remembers a judged pair either way, so the next run can skip re-asking the model', () => {
+    expect(store.hasContradictionCheck('old', 'newer')).toBe(false);
+
+    store.recordContradictionCheck({ ...yes, contradicts: false, reason: null });
+    expect(store.hasContradictionCheck('old', 'newer')).toBe(true);
+    expect(store.hasContradictionCheck('newer', 'old')).toBe(false); // direction matters
+  });
+
+  it('lists only YES verdicts, with both titles and the reason', () => {
+    store.recordContradictionCheck(yes);
+    store.recordContradictionCheck({ candidateId: 'newer', againstId: 'old', contradicts: false, reason: null, model: 'test-model' });
+
+    const rows = store.listContradictionSuggestions(PROJECT);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      candidateId: 'old',
+      candidateTitle: 'old claim',
+      againstId: 'newer',
+      againstTitle: 'newer claim',
+      reason: 'directly reverses it',
+    });
+    expect(store.countContradictionSuggestions(PROJECT)).toBe(1);
+  });
+
+  it('drops a suggestion once the candidate is superseded -- it did its job', () => {
+    store.recordContradictionCheck(yes);
+    store.setSupersedes('newer', 'old');
+
+    expect(store.listContradictionSuggestions(PROJECT)).toEqual([]);
+    expect(store.countContradictionSuggestions(PROJECT)).toBe(0);
+  });
+
+  it('is scoped to one project', () => {
+    store.upsertNodes([node({ id: 'foreign', kind: 'session_summary', projectId: 'proj-b' })]);
+    store.recordContradictionCheck({ ...yes, candidateId: 'foreign', againstId: 'old' });
+
+    expect(store.countContradictionSuggestions(PROJECT)).toBe(0);
+    expect(store.countContradictionSuggestions('proj-b')).toBe(1);
+  });
+
+  it('cascades away with either node, so a check never outlives what it judged', () => {
+    store.recordContradictionCheck(yes);
+    store.raw.prepare('DELETE FROM nodes WHERE id = ?').run('newer');
+
+    expect(store.hasContradictionCheck('old', 'newer')).toBe(false);
+  });
+});
+
 describe('MemoryStore.search', () => {
   let dir: string;
   let store: MemoryStore;

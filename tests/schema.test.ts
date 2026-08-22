@@ -130,7 +130,8 @@ describe('migrate (V5 -> V6 provenance backfill against real pre-existing data)'
     insert.run({ id: 'n-mystery', kind: 'mystery', provenance: 'inferred' });
 
     const result = migrate(db);
-    expect(result).toEqual({ from: 6, to: 7 });
+    expect(result.from).toBe(6);
+    expect(result.to).toBeGreaterThanOrEqual(7);
 
     const rows = db.prepare('SELECT id, provenance FROM nodes ORDER BY id').all() as Array<{ id: string; provenance: string }>;
     expect(Object.fromEntries(rows.map((r) => [r.id, r.provenance]))).toEqual({

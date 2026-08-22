@@ -220,6 +220,24 @@ UPDATE nodes SET provenance = 'derived'  WHERE kind = 'session_summary';
 UPDATE nodes SET provenance = 'recorded' WHERE provenance = 'inferred';
 `;
 
+// Memoized SLM contradiction judgments (see retrieval/contradiction.ts). A
+// judged pair is recorded whichever way the verdict went, so a later sync can
+// skip re-asking the model about it -- that memoization is what makes running
+// the check automatically on sync affordable. Suggest-only remains the
+// contract: nothing here writes `supersedes`, a human still runs mark-stale.
+// ON DELETE CASCADE keeps a check from outliving either node (forget, prune).
+const V8 = `
+CREATE TABLE contradiction_checks (
+  candidate_id TEXT NOT NULL REFERENCES nodes (id) ON DELETE CASCADE,
+  against_id   TEXT NOT NULL REFERENCES nodes (id) ON DELETE CASCADE,
+  contradicts  INTEGER NOT NULL,
+  reason       TEXT,
+  model        TEXT NOT NULL,
+  checked_at   INTEGER NOT NULL,
+  PRIMARY KEY (candidate_id, against_id)
+);
+`;
+
 interface Migration {
   version: number;
   up: (db: Database) => void;
@@ -234,6 +252,7 @@ export const MIGRATIONS: Migration[] = [
   { version: 5, up: (db) => db.exec(V5) },
   { version: 6, up: (db) => db.exec(V6) },
   { version: 7, up: (db) => db.exec(V7) },
+  { version: 8, up: (db) => db.exec(V8) },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

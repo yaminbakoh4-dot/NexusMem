@@ -58,12 +58,21 @@ import {
 } from './embeddings.js';
 import { search, stats, type SearchHit, type StoreStats } from './search.js';
 import { getMeta, setMeta } from './meta.js';
+import {
+  countContradictionSuggestions,
+  hasContradictionCheck,
+  listContradictionSuggestions,
+  recordContradictionCheck,
+  type ContradictionCheckInput,
+  type ContradictionSuggestionRow,
+} from './contradictions.js';
 
 export type { ProjectRecord } from './projects.js';
 export type { IngestStats, LinkedNode, RecentNode, StaleCandidate } from './nodes.js';
 export type { ForgetPreview, ForgetResult, ImportDenyListResult, ImportPreviewItem } from './forget.js';
 export type { EmbeddableNode, VectorHit } from './embeddings.js';
 export type { SearchHit, StoreStats } from './search.js';
+export type { ContradictionCheckInput, ContradictionSuggestionRow } from './contradictions.js';
 
 export class MemoryStore {
   private constructor(private readonly db: Database.Database) {}
@@ -317,6 +326,24 @@ export class MemoryStore {
   /** Same criteria as `listStaleCandidates`, but just the count -- for `status`'s summary line. */
   countStaleCandidates(projectId: string, opts: { now?: Date; minAgeDays?: number } = {}): number {
     return countStaleCandidates(this.db, projectId, opts);
+  }
+
+  /** Memoize one SLM contradiction judgment (either verdict). Suggest-only: never writes `supersedes`. */
+  recordContradictionCheck(input: ContradictionCheckInput): void {
+    recordContradictionCheck(this.db, input);
+  }
+
+  hasContradictionCheck(candidateId: string, againstId: string): boolean {
+    return hasContradictionCheck(this.db, candidateId, againstId);
+  }
+
+  /** Open YES verdicts awaiting a human's `mark-stale`, newest judgment first. */
+  listContradictionSuggestions(projectId: string, opts: { limit?: number } = {}): ContradictionSuggestionRow[] {
+    return listContradictionSuggestions(this.db, projectId, opts);
+  }
+
+  countContradictionSuggestions(projectId: string): number {
+    return countContradictionSuggestions(this.db, projectId);
   }
 
   /** Escape hatch for tests and future modules. */
